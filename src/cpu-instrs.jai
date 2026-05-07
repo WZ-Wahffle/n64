@@ -1,3 +1,7 @@
+cpu_special :: (ins: u32) {
+    cpu_special_lut[ins & 0x3f](ins);
+}
+
 cpu_lui :: (ins: u32) {
     _, rt, imm := decode_i(ins);
     cpu_reg_dst(rt, imm << 16);
@@ -65,6 +69,16 @@ cpu_cop0 :: (ins: u32) {
             cpu.cp0[rd] = xx cpu_reg_src(rt);
         case;
             assert(false, "TODO");
+    }
+}
+
+cpu_break :: (ins: u32) {
+    if cpu.state == .RUNNING {
+        cpu.state = .STOPPED;
+        cpu.pc -= 4;
+    } else {
+        idx := ((ins >> 6) & 0xfffff) - 1;
+        execute(cpu.bp[idx]);
     }
 }
 

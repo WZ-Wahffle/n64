@@ -51,11 +51,25 @@ Memory :: struct {
         _16: [0xc]u16;
         _32: [0x6]u32;
     }
+
+    rom : union {
+        _8: [0xfc00000]u8;
+        _16: [0x7e00000]u16;
+        _32: [0x3f00000]u32;
+        _64: [0x1f8000]u64;
+    }
+}
+
+bswap :: inline (val: u32) -> u32 {
+    #asm {
+        bswap.32 val;
+    }
+    return val;
 }
 
 read_4 :: (addr: u32) -> u32 {
     if addr < 0x00800000 {
-        return mem.ram._32[addr >> 2];
+        return bswap(mem.ram._32[addr >> 2]);
     }
     if addr < 0x03f00000 {
         assert(false, "Read Reserved at 0x%", formatInt(addr, 16));
@@ -66,10 +80,10 @@ read_4 :: (addr: u32) -> u32 {
     if addr < 0x05000000 {
         if addr < 0x04100000 {
             if addr < 0x04001000 {
-                return mem.dmem._32[(addr & 0xfff) >> 2];
+                return bswap(mem.dmem._32[(addr & 0xfff) >> 2]);
             }
             if addr < 0x04002000 {
-                return mem.imem._32[(addr & 0xfff) >> 2];
+                return bswap(mem.imem._32[(addr & 0xfff) >> 2]);
             }
             if addr < 0x04040000 {
                 assert(false, "Read Reserved at 0x%", formatInt(addr, 16));
@@ -111,22 +125,22 @@ read_4 :: (addr: u32) -> u32 {
         assert(false, "Read Reserved at 0x%", formatInt(addr, 16));
     }
     if addr < 0x1fc00000 {
-        assert(false, "TODO: Read Game Pak at 0x%", formatInt(addr, 16));
+        return bswap(mem.rom._32[(addr - 0x10000000) >> 2]);
     }
     if addr < 0x1fc007c0 {
-        return mem.boot_rom._32[(addr - 0x1fc00000) >> 2];
+        return bswap(mem.boot_rom._32[(addr - 0x1fc00000) >> 2]);
     }
     if addr < 0x1fc00800 {
-        return mem.boot_ram._32[(addr - 0x1fc007c0) >> 2];
+        return bswap(mem.boot_ram._32[(addr - 0x1fc007c0) >> 2]);
     }
 
     assert(false, "Read Reserved at 0x%", formatInt(addr, 16));
     return 0;
 }
 
-write_4 :: (addr: u32, val: u32) {
+write_4 :: (addr: u32, val: u32, override := false) {
     if addr < 0x00800000 {
-        mem.ram._32[addr >> 2] = val;
+        mem.ram._32[addr >> 2] = bswap(val);
     }
     else if addr < 0x03f00000 {
         assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
@@ -137,10 +151,10 @@ write_4 :: (addr: u32, val: u32) {
     else if addr < 0x05000000 {
         if addr < 0x04100000 {
             if addr < 0x04001000 {
-                mem.dmem._32[(addr & 0xfff) >> 2] = val;
+                mem.dmem._32[(addr & 0xfff) >> 2] = bswap(val);
             }
             else if addr < 0x04002000 {
-                mem.imem._32[(addr & 0xfff) >> 2] = val;
+                mem.imem._32[(addr & 0xfff) >> 2] = bswap(val);
             }
             else if addr < 0x04040000 {
                 assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
@@ -192,10 +206,11 @@ write_4 :: (addr: u32, val: u32) {
         assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
     }
     else if addr < 0x1fc007c0 {
-        assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
+        if !override assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
+        mem.boot_rom._32[(addr - 0x1fc00000) >> 2] = bswap(val);
     }
     else if addr < 0x1fc00800 {
-        mem.boot_ram._32[(addr - 0x1fc007c0) >> 2] = val;
+        mem.boot_ram._32[(addr - 0x1fc007c0) >> 2] = bswap(val);
     }
     else assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
 }

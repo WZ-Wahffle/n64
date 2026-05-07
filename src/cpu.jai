@@ -1,11 +1,21 @@
+Cpu_State :: enum {
+    RUNNING;
+    STOPPED;
+    STARTED;
+}
+
 Cpu :: struct {
     gpr: [32]u64;
     cp0: [32]u32;
     pc: u32 = 0xbfc00000;
+
+    bp: [32]u32;
+    state := Cpu_State.STOPPED;
+    remaining_cycles := 0;
 }
 
 cpu_instr_lut := (_:u32).[
-    null,
+    cpu_special,
     null,
     null,
     null,
@@ -55,31 +65,93 @@ cpu_instr_lut := (_:u32).[
     null,
 ];
 
+cpu_special_lut := (_:u32).[
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    cpu_break,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+];
+
 read_4_v :: (addr: u32) -> u32 {
-    if addr < 0x80000000 {
-        assert(false, "TODO: Read KUSEG TLB map");
-    }
-    if addr < 0xc0000000 {
-        return read_4(addr & 0x1fffffff);
-    }
-    if addr < 0xe0000000 {
-        assert(false, "TODO: Read KSSEG TLB map");
-    }
-    assert(false, "TODO: Read KSEG3 TLB map");
-    return 0;
+    return read_4(virt2phys(addr));
 }
 
-write_4_v :: (addr: u32, val: u32) {
+write_4_v :: (addr: u32, val: u32, override := false) {
+    write_4(virt2phys(addr), val, true);
+}
+
+virt2phys :: (addr: u32) -> u32 {
     if addr < 0x80000000 {
-        assert(false, "TODO: Write KUSEG TLB map");
+        assert(false, "TODO: Resolve KUSEG TLB map at 0x%", formatInt(addr, 16, 8));
     }
-    else if addr < 0xc0000000 {
-        write_4(addr & 0x1fffffff, val);
+    if addr < 0xc0000000 {
+        return addr & 0x1fffffff;
     }
-    else if addr < 0xe0000000 {
-        assert(false, "TODO: Write KSSEG TLB map");
+    if addr < 0xe0000000 {
+        assert(false, "TODO: Resolve KSSEG TLB map at 0x%", formatInt(addr, 16, 8));
     }
-    else assert(false, "TODO: Write KSEG3 TLB map");
+    assert(false, "TODO: Resolve KSEG3 TLB map at 0x%", formatInt(addr, 16, 8));
+    return 0;
 }
 
 cpu_next :: () -> u32 {
@@ -98,8 +170,13 @@ cpu_reg_dst :: inline (idx: u32, val: u64) {
 
 execute_next :: () {
     ins := cpu_next();
-    #asm {
-        bswap.32 ins;
-    }
+    execute(ins);
+}
+
+execute :: (ins: u32) {
     cpu_instr_lut[ins >> 26](ins);
+}
+
+cpu_reset :: () {
+    for * cpu.bp it.* = 0xffffffff;
 }
