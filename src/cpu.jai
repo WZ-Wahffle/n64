@@ -74,7 +74,7 @@ cpu_special_lut := (_:u32).[
     null,
     null,
     null,
-    null,
+    cpu_jr,
     null,
     null,
     null,

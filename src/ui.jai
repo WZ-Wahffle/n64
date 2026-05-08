@@ -244,7 +244,6 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
 
 disasm_state : struct {
     scroll_state := 0xbfc00000;
-    line_count := 0;
 
     physical_addr := false;
     follow := true;
@@ -253,6 +252,13 @@ disasm_state : struct {
 
 disasm_window :: () {
     im.Begin("disasm", null, .NoScrollbar | .NoScrollWithMouse);
+    if im.CollapsingHeader("Options", .OpenOnArrow) {
+        im.Checkbox("Physical addresses", *disasm_state.physical_addr);
+        im.Checkbox("Follow PC", *disasm_state.follow);
+        im.Checkbox("Register Names", *disasm_state.pretty_regs);
+    }
+    im.Separator();
+    im.BeginChild("disasm_view", flags=.NoScrollbar | .NoScrollWithMouse);
     if im.IsWindowHovered() {
         if (im.GetIO().MouseWheel < 0) {
             disasm_state.scroll_state += 4;
@@ -261,17 +267,11 @@ disasm_window :: () {
             disasm_state.scroll_state = max(disasm_state.scroll_state, 0);
         }
     }
-    if im.CollapsingHeader("Options", .OpenOnArrow) {
-        im.Checkbox("Physical addresses", *disasm_state.physical_addr);
-        im.Checkbox("Follow PC", *disasm_state.follow);
-        im.Checkbox("Register Names", *disasm_state.pretty_regs);
-    }
-    im.Separator();
-    disasm_state.line_count = xx ((im.GetWindowContentRegionMax().y - im.GetCursorPosY()) / im.GetTextLineHeightWithSpacing());
+    line_count : int = xx ((im.GetWindowContentRegionMax().y - im.GetCursorPosY()) / im.GetTextLineHeightWithSpacing());
 
     every_other := true;
-    for line : 0..disasm_state.line_count {
-        addr : u32 = xx (disasm_state.scroll_state + (line - disasm_state.line_count / 2) * 4);
+    for line : 0..line_count {
+        addr : u32 = xx (disasm_state.scroll_state + (line - line_count / 2) * 4);
         green := im.ImVec4.{0., 1., 0., 1.};
         red := im.ImVec4.{1., 0., 0., 1.};
         ins := read_4_v(addr);
@@ -297,10 +297,10 @@ disasm_window :: () {
                 return in;
             }
             item_rect := im.GetItemRectMin();
-            src_y := item_rect.y + im.GetTextLineHeight() / 2;
+            src_y := (item_rect.y + im.GetTextLineHeightWithSpacing() + im.GetTextLineHeight() / 2);
             dst_y := src_y + im.GetTextLineHeightWithSpacing() * info.off / 4;
             min_x := item_rect.x;
-            max_x := min_x + 20;;
+            max_x := min_x + 20;
             if every_other min_x += 5;
             every_other ^= true;
             draw_arrow(src_y, dst_y, min_x, max_x, (quickhash(addr) & 0xffffff) | 0x80404040);
@@ -310,21 +310,28 @@ disasm_window :: () {
         }
 
         if im.IsItemClicked() {
-            if has_bp {
-                idx := ((ins >> 6) & 0xfffff) - 1;
-                write_4_v(addr, cpu.bp[idx], true);
-                cpu.bp[idx] = 0xffffffff;
-            } else {
-                idx := 0;
-                for cpu.bp if it == 0xffffffff {
-                    idx = it_index;
-                    break;
+            if im.IsKeyDown(.LeftCtrl) {
+                if info.type == .BRANCH {
+                    disasm_state.scroll_state = xx addr + cast,no_check(u32,info.off);
                 }
-                cpu.bp[idx] = ins;
-                write_4_v(addr, xx 0xd | ((idx + 1) << 6), true);
+            } else {
+                if has_bp {
+                    idx := ((ins >> 6) & 0xfffff) - 1;
+                    write_4_v(addr, cpu.bp[idx], true);
+                    cpu.bp[idx] = 0xffffffff;
+                } else {
+                    idx := 0;
+                    for cpu.bp if it == 0xffffffff {
+                        idx = it_index;
+                        break;
+                    }
+                    cpu.bp[idx] = ins;
+                    write_4_v(addr, xx 0xd | ((idx + 1) << 6), true);
+                }
             }
         }
     }
 
+    im.EndChild();
     im.End();
 }

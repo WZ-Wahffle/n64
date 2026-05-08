@@ -61,6 +61,11 @@ cpu_bnel :: (ins: u32) {
     cpu_branch_likely(addr, cpu_reg_src(rt) != cpu_reg_src(rs));
 }
 
+cpu_jr :: (ins: u32) {
+    rs := decode_i(ins);
+    cpu.pc = xx cpu_reg_src(rs);
+}
+
 cpu_cop0 :: (ins: u32) {
     op, rt, imm := decode_i(ins);
     rd := imm >> 11;
