@@ -35,6 +35,8 @@ ui :: () {
 
         rg.backend_frame_end();
         rl.EndDrawing();
+
+        reset_temporary_storage();
     }
     rl.CloseWindow();
 }
@@ -103,9 +105,10 @@ cpu_window :: () {
     im.End();
 }
 
-disasm :: (addr: u32) -> str: string, info: Disasm_Return {
-    a, b := disasm_explicit(addr, read_4_v(addr));
-    return a, b;
+disasm :: (addr: u32) -> str: string, info: Disasm_Return, ins: u32 {
+    ins := read_4_v(addr);
+    a, b := disasm_explicit(addr, ins);
+    return a, b, ins;
 }
 
 Disasm_Return :: struct {
@@ -114,12 +117,14 @@ Disasm_Return :: struct {
         BRANCH;
         JUMP;
         CALL;
+        BREAK;
     }
     off: s32 = 0;
     cond: bool = false;
+    bp_idx : u32 = 0;
 }
 
-disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = {.NORMAL, 0, false}) {
+disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = {.NORMAL, 0, false, 0}) {
     to_reg :: (reg: u32) -> string {
         labels :: string.[
             "$zero", "$at",
@@ -148,38 +153,38 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
         case 0;
         if funct == {
             case 0;
-            if rt_idx == 0 && rd_idx == 0 && sa == 0 return "NOP";
-            return tprint("SLL %, %, 0x%", rd, rt, formatInt(sa, 16));
+            if rt_idx == 0 && rd_idx == 0 && sa == 0 return "NOP\0";
+            return tprint("SLL %, %, 0x%\0", rd, rt, formatInt(sa, 16));
             case 2;
-            return tprint("SRL %, %, 0x%", rd, rt, formatInt(sa, 16));
+            return tprint("SRL %, %, 0x%\0", rd, rt, formatInt(sa, 16));
             case 4;
-            return tprint("SLLV %, %, %", rd, rt, rs);
+            return tprint("SLLV %, %, %\0", rd, rt, rs);
             case 6;
-            return tprint("SLRV %, %, %", rd, rt, rs);
+            return tprint("SLRV %, %, %\0", rd, rt, rs);
             case 8;
-            return tprint("JR %", rs), .{type=.JUMP};
+            return tprint("JR %\0", rs), .{type=.JUMP};
             case 13;
             idx := (val >> 6) & 0xfffff;
-            if idx == 0 return "BREAK 0x0";
-            return disasm_explicit(addr, cpu.bp[idx-1]);
+            if idx == 0 return "BREAK 0x0\0";
+            return disasm_explicit(addr, cpu.bp[idx-1]), .{type=.BREAK, bp_idx=idx-1};
             case 16;
-            return tprint("MFHI %", rd);
+            return tprint("MFHI %\0", rd);
             case 18;
-            return tprint("MFLO %", rd);
+            return tprint("MFLO %\0", rd);
             case 25;
-            return tprint("MULTU %, %", rs, rt);
+            return tprint("MULTU %, %\0", rs, rt);
             case 33;
-            return tprint("ADDU %, %, %", rd, rs, rt);
+            return tprint("ADDU %, %, %\0", rd, rs, rt);
             case 35;
-            return tprint("SUBU %, %, %", rd, rs, rt);
+            return tprint("SUBU %, %, %\0", rd, rs, rt);
             case 36;
-            return tprint("AND %, %, %", rd, rs, rt);
+            return tprint("AND %, %, %\0", rd, rs, rt);
             case 37;
-            return tprint("OR %, %, %", rd, rs, rt);
+            return tprint("OR %, %, %\0", rd, rs, rt);
             case 38;
-            return tprint("XOR %, %, %", rd, rs, rt);
+            return tprint("XOR %, %, %\0", rd, rs, rt);
             case 43;
-            return tprint("SLTU %, %, %", rd, rs, rt);
+            return tprint("SLTU %, %, %\0", rd, rs, rt);
             case;
             assert(false, "% %", funct, formatInt(addr, 16));
         }
@@ -188,54 +193,54 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             case 17;
             if imm & 0x8000 != 0 imm |= 0xffff0000;
             imm <<= 2;
-            if rs_idx == 0 then return tprint("BAL 0x%", formatInt(addr + imm + 4, 16, 8)), .{.CALL, cast,no_check(s32,imm + 4), false};
-            else return tprint("BGEZAL %, 0x%", rs, formatInt(addr + imm + 4, 16, 8)), .{.CALL, cast,no_check(s32,imm + 4), true};
+            if rs_idx == 0 then return tprint("BAL 0x%\0", formatInt(addr + imm + 4, 16, 8)), .{type=.CALL, off=cast,no_check(s32,imm + 4), cond=false};
+            else return tprint("BGEZAL %, 0x%\0", rs, formatInt(addr + imm + 4, 16, 8)), .{type=.CALL, off=cast,no_check(s32,imm + 4), cond=true};
             case;
             assert(false, "% %", rt_idx, formatInt(addr, 16));
         }
         case 4;
         if imm & 0x8000 != 0 imm |= 0xffff0000;
         imm <<= 2;
-        return tprint("BEQ %, %, 0x%", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{.BRANCH, cast,no_check(s32,imm + 4), true};
+        return tprint("BEQ %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
         case 5;
         if imm & 0x8000 != 0 imm |= 0xffff0000;
         imm <<= 2;
-        return tprint("BNE %, %, 0x%", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{.BRANCH, cast,no_check(s32,imm + 4), true};
+        return tprint("BNE %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
         case 8;
         if imm & 0x8000 != 0 then imm |= 0xffff0000;
-        return tprint("ADDI %, %, 0x%", rt, rs, formatInt(imm, 16));
+        return tprint("ADDI %, %, 0x%\0", rt, rs, formatInt(imm, 16));
         case 9;
         if imm & 0x8000 != 0 then imm |= 0xffff0000;
-        return tprint("ADDIU %, %, 0x%", rt, rs, formatInt(imm, 16));
+        return tprint("ADDIU %, %, 0x%\0", rt, rs, formatInt(imm, 16));
         case 12;
-        return tprint("ANDI %, %, 0x%", rt, rs, formatInt(imm, 16));
+        return tprint("ANDI %, %, 0x%\0", rt, rs, formatInt(imm, 16));
         case 13;
-        return tprint("ORI %, %, 0x%", rt, rs, formatInt(imm, 16));
+        return tprint("ORI %, %, 0x%\0", rt, rs, formatInt(imm, 16));
         case 15;
-        return tprint("LUI %, 0x%", rt, formatInt(imm, 16));
+        return tprint("LUI %, 0x%\0", rt, formatInt(imm, 16));
         case 16; #through;
         case 17; #through;
         case 18;
         if rs_idx == {
             case 4;
-            return tprint("MTC% %, %", op - 16, rt, rd);
+            return tprint("MTC% %, %\0", op - 16, rt, rd);
             case;
             assert(false, "% %", rs, formatInt(addr, 16));
         }
         case 20;
         if imm & 0x8000 != 0 imm |= 0xffff0000;
         imm <<= 2;
-        return tprint("BEQL %, %, 0x%", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{.BRANCH, cast,no_check(s32,imm + 4), true};
+        return tprint("BEQL %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
         case 21;
         if imm & 0x8000 != 0 imm |= 0xffff0000;
         imm <<= 2;
-        return tprint("BNEL %, %, 0x%", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{.BRANCH, cast,no_check(s32,imm + 4), true};
+        return tprint("BNEL %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
         case 35;
-        return tprint("LW %, 0x%(%)", rt, formatInt(imm, 16), rs);
+        return tprint("LW %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 43;
-        return tprint("SW %, 0x%(%)", rt, formatInt(imm, 16), rs);
+        return tprint("SW %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 63;
-        return tprint("SD %, 0x%(%)", rt, formatInt(imm, 16), rs);
+        return tprint("SD %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case;
         assert(false, "% %", op, formatInt(addr, 16));
     }
@@ -268,21 +273,26 @@ disasm_window :: () {
         }
     }
     line_count : int = xx ((im.GetWindowContentRegionMax().y - im.GetCursorPosY()) / im.GetTextLineHeightWithSpacing());
+    view : [100] struct {virt_addr: u32; ins: u32; text: string; info: Disasm_Return; is_branch_delay: bool;};
+
+    for 0..line_count {
+        addr : u32 = xx (disasm_state.scroll_state + (it - line_count / 2) * 4);
+        mnem, info, ins := disasm(addr);
+        is_branch_delay := info.type == .BRANCH;
+        view[it] = .{addr, ins, mnem, info, is_branch_delay};
+    }
 
     every_other := true;
     for line : 0..line_count {
-        addr : u32 = xx (disasm_state.scroll_state + (line - line_count / 2) * 4);
         green := im.ImVec4.{0., 1., 0., 1.};
         red := im.ImVec4.{1., 0., 0., 1.};
-        ins := read_4_v(addr);
-        has_bp := (ins & 0xfc00003f == 0xd) && (ins >> 6) & 0xfffff != 0;
 
-        disp_addr := ifx disasm_state.physical_addr then virt2phys(addr) else addr;
-        mnem, info := disasm(addr);
-        if addr == cpu.pc im.TextColored_CFormat(*green, "  0x%08x: %s", disp_addr, mnem.data);
-        else if has_bp im.TextColored_CFormat(*red, "  0x%08x: %s", disp_addr, mnem.data);
-        else im.Text_CFormat("  0x%08x: %s", disp_addr, mnem.data);
-        if info.type == {
+        disp_addr := ifx disasm_state.physical_addr then virt2phys(view[line].virt_addr) else view[line].virt_addr;
+        if view[line].virt_addr == cpu.pc im.TextColored_CFormat(*green, "  0x%08x: %s", disp_addr, view[line].text.data);
+        else if view[line].info.type == .BREAK im.TextColored_CFormat(*red, "  0x%08x: %s", disp_addr, view[line].text.data);
+        else im.Text_CFormat("  0x%08x: %s", disp_addr, view[line].text.data);
+
+        if view[line].info.type == {
             case .BRANCH;
             draw_arrow :: (src_y: float, dst_y: float, min_x: float, max_x: float, color: u32) {
                 im.ImDrawList.AddLine(im.GetWindowDrawList(), .{min_x, src_y}, .{max_x, src_y}, color);
@@ -298,12 +308,12 @@ disasm_window :: () {
             }
             item_rect := im.GetItemRectMin();
             src_y := (item_rect.y + im.GetTextLineHeightWithSpacing() + im.GetTextLineHeight() / 2);
-            dst_y := src_y + im.GetTextLineHeightWithSpacing() * info.off / 4;
+            dst_y := src_y + im.GetTextLineHeightWithSpacing() * view[line].info.off / 4;
             min_x := item_rect.x;
             max_x := min_x + 20;
             if every_other min_x += 5;
             every_other ^= true;
-            draw_arrow(src_y, dst_y, min_x, max_x, (quickhash(addr) & 0xffffff) | 0x80404040);
+            draw_arrow(src_y, dst_y, min_x, max_x, (quickhash(view[line].virt_addr) & 0xffffff) | 0x80404040);
             case .JUMP;
             im.Separator();
             case;
@@ -311,22 +321,21 @@ disasm_window :: () {
 
         if im.IsItemClicked() {
             if im.IsKeyDown(.LeftCtrl) {
-                if info.type == .BRANCH {
-                    disasm_state.scroll_state = xx addr + cast,no_check(u32,info.off);
+                if view[line].info.type == .BRANCH {
+                    disasm_state.scroll_state = xx view[line].virt_addr + cast,no_check(u32,view[line].info.off);
                 }
             } else {
-                if has_bp {
-                    idx := ((ins >> 6) & 0xfffff) - 1;
-                    write_4_v(addr, cpu.bp[idx], true);
-                    cpu.bp[idx] = 0xffffffff;
+                if view[line].info.type == .BREAK {
+                    write_4_v(view[line].virt_addr, cpu.bp[view[line].info.bp_idx], true);
+                    cpu.bp[view[line].info.bp_idx] = 0xffffffff;
                 } else {
                     idx := 0;
                     for cpu.bp if it == 0xffffffff {
                         idx = it_index;
                         break;
                     }
-                    cpu.bp[idx] = ins;
-                    write_4_v(addr, xx 0xd | ((idx + 1) << 6), true);
+                    cpu.bp[idx] = view[line].ins;
+                    write_4_v(view[line].virt_addr, xx 0xd | ((idx + 1) << 6), true);
                 }
             }
         }

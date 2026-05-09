@@ -8,6 +8,8 @@ Cpu :: struct {
     gpr: [32]u64;
     cp0: [32]u32;
     pc: u32 = 0xbfc00000;
+    hi: u64;
+    lo: u64;
 
     bp: [32]u32;
     state := Cpu_State.STOPPED;
@@ -19,11 +21,11 @@ cpu_instr_lut := (_:u32).[
     null,
     null,
     null,
-    null,
+    cpu_beq,
     cpu_bne,
     null,
     null,
-    null,
+    cpu_addi,
     cpu_addiu,
     null,
     null,
@@ -68,7 +70,7 @@ cpu_instr_lut := (_:u32).[
 cpu_special_lut := (_:u32).[
     null,
     null,
-    null,
+    cpu_srl,
     null,
     null,
     null,
@@ -82,6 +84,16 @@ cpu_special_lut := (_:u32).[
     cpu_break,
     null,
     null,
+    cpu_mfhi,
+    null,
+    cpu_mflo,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    cpu_multu,
     null,
     null,
     null,
@@ -93,17 +105,7 @@ cpu_special_lut := (_:u32).[
     null,
     null,
     null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
+    cpu_or,
     null,
     null,
     null,

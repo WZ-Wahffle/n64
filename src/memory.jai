@@ -34,6 +34,12 @@ Memory :: struct {
         _64: [0x200]u64;
     }
 
+    si : union {
+        _8: [0x1c]u8;
+        _16: [0xe]u16;
+        _32: [0x7]u32;
+    }
+
     pi : union {
         _8: [0x34]u8;
         _16: [0x1a]u16;
@@ -50,6 +56,12 @@ Memory :: struct {
         _8: [0x18]u8;
         _16: [0xc]u16;
         _32: [0x6]u32;
+    }
+
+    rdp_cmd : union {
+        _8: [0x20]u8;
+        _16: [0x10]u16;
+        _32: [0x8]u32;
     }
 
     rom : union {
@@ -93,7 +105,8 @@ read_4 :: (addr: u32) -> u32 {
             }
         }
         if addr < 0x04200000 {
-            assert(false, "TODO: Read DP Command Registers at 0x%", formatInt(addr, 16));
+            off := (addr - 0x04100000) >> 2;
+            return mem.rdp_cmd._32[off];
         }
         if addr < 0x04300000 {
             assert(false, "TODO: Read DP Span Registers at 0x%", formatInt(addr, 16));
@@ -114,7 +127,8 @@ read_4 :: (addr: u32) -> u32 {
             assert(false, "TODO: Read RI Registers at 0x%", formatInt(addr, 16));
         }
         if addr < 0x04900000 {
-            assert(false, "TODO: Read SI Registers at 0x%", formatInt(addr, 16));
+            off := (addr - 0x04800000) >> 2;
+            return mem.si._32[off];
         }
         assert(false, "TODO: Read RCP Registers at 0x%", formatInt(addr, 16));
     }
