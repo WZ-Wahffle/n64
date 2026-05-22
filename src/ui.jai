@@ -149,6 +149,7 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
     sa := (val >> 6) & 0x1f;
     funct := val & 0x3f;
     imm := val & 0xffff;
+    dest := val & 0x3ffffff;
     if op == {
         case 0;
         if funct == {
@@ -173,6 +174,8 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             return tprint("MFLO %\0", rd);
             case 25;
             return tprint("MULTU %, %\0", rs, rt);
+            case 32;
+            return tprint("ADD %, %, %\0", rd, rs, rt);
             case 33;
             return tprint("ADDU %, %, %\0", rd, rs, rt);
             case 35;
@@ -183,6 +186,8 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             return tprint("OR %, %, %\0", rd, rs, rt);
             case 38;
             return tprint("XOR %, %, %\0", rd, rs, rt);
+            case 42;
+            return tprint("SLT %, %, %\0", rd, rs, rt);
             case 43;
             return tprint("SLTU %, %, %\0", rd, rs, rt);
             case;
@@ -198,6 +203,8 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             case;
             assert(false, "% %", rt_idx, formatInt(addr, 16));
         }
+        case 3;
+        return tprint("JAL 0x%\0", formatInt((addr & 0xf0000000) | (dest << 2), 16, 8));
         case 4;
         if imm & 0x8000 != 0 imm |= 0xffff0000;
         imm <<= 2;
@@ -212,10 +219,16 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
         case 9;
         if imm & 0x8000 != 0 then imm |= 0xffff0000;
         return tprint("ADDIU %, %, 0x%\0", rt, rs, formatInt(imm, 16));
+        case 10;
+        return tprint("SLTI %, %, 0x%\0", rt, rs, formatInt(imm, 16));
+        case 11;
+        return tprint("SLTIU %, %, 0x%\0", rt, rs, formatInt(imm, 16));
         case 12;
         return tprint("ANDI %, %, 0x%\0", rt, rs, formatInt(imm, 16));
         case 13;
         return tprint("ORI %, %, 0x%\0", rt, rs, formatInt(imm, 16));
+        case 14;
+        return tprint("XORI %, %, 0x%\0", rt, rs, formatInt(imm, 16));
         case 15;
         return tprint("LUI %, 0x%\0", rt, formatInt(imm, 16));
         case 16; #through;
@@ -235,10 +248,16 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
         if imm & 0x8000 != 0 imm |= 0xffff0000;
         imm <<= 2;
         return tprint("BNEL %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
+        case 22;
+        if imm & 0x8000 != 0 imm |= 0xffff0000;
+        imm <<= 2;
+        return tprint("BLEZL %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
         case 35;
         return tprint("LW %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 43;
         return tprint("SW %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
+        case 47;
+        return tprint("CACHE %, 0x%(%)\0", rt_idx, formatInt(imm, 16), rs);
         case 63;
         return tprint("SD %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case;
@@ -249,6 +268,7 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
 
 disasm_state : struct {
     scroll_state := 0xbfc00000;
+    disasm_jump_buffer: [9]u8;
 
     physical_addr := false;
     follow := true;
@@ -261,6 +281,15 @@ disasm_window :: () {
         im.Checkbox("Physical addresses", *disasm_state.physical_addr);
         im.Checkbox("Follow PC", *disasm_state.follow);
         im.Checkbox("Register Names", *disasm_state.pretty_regs);
+    }
+    im.Text("0x");
+    im.SameLine();
+    im.InputText("##disasm_jump_buffer", disasm_state.disasm_jump_buffer.data, 9);
+    im.SameLine();
+    if im.Button("Jump to...") {
+        str := string.{8, disasm_state.disasm_jump_buffer.data};
+        parsed := string_to_int(str, 16);
+        disasm_state.scroll_state = parsed;
     }
     im.Separator();
     im.BeginChild("disasm_view", flags=.NoScrollbar | .NoScrollWithMouse);
@@ -276,10 +305,14 @@ disasm_window :: () {
     view : [100] struct {virt_addr: u32; ins: u32; text: string; info: Disasm_Return; is_branch_delay: bool;};
 
     for 0..line_count {
-        addr : u32 = xx (disasm_state.scroll_state + (it - line_count / 2) * 4);
-        mnem, info, ins := disasm(addr);
-        is_branch_delay := info.type == .BRANCH;
-        view[it] = .{addr, ins, mnem, info, is_branch_delay};
+        if disasm_state.scroll_state + (it - line_count / 2) * 4 < 0 {
+            view[it] = .{0, 0, "", {}, false};
+        } else {
+            addr : u32 = xx (disasm_state.scroll_state + (it - line_count / 2) * 4);
+            mnem, info, ins := disasm(addr);
+            is_branch_delay := info.type == .BRANCH;
+            view[it] = .{addr, ins, mnem, info, is_branch_delay};
+        }
     }
 
     every_other := true;

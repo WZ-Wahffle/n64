@@ -34,6 +34,18 @@ Memory :: struct {
         _64: [0x200]u64;
     }
 
+    ri : union {
+        _8: [0x20]u8;
+        _16: [0x10]u16;
+        _32: [0x8]u32;
+    }
+
+    mi : union {
+        _8: [0x10]u8;
+        _16: [0x8]u16;
+        _32: [0x4]u32;
+    }
+
     si : union {
         _8: [0x1c]u8;
         _16: [0xe]u16;
@@ -112,7 +124,8 @@ read_4 :: (addr: u32) -> u32 {
             assert(false, "TODO: Read DP Span Registers at 0x%", formatInt(addr, 16));
         }
         if addr < 0x04400000 {
-            assert(false, "TODO: Read MI Registers at 0x%", formatInt(addr, 16));
+            off := (addr - 0x04300000) >> 2;
+            return mem.mi._32[off];
         }
         if addr < 0x04500000 {
             assert(false, "TODO: Read VI Registers at 0x%", formatInt(addr, 16));
@@ -121,10 +134,12 @@ read_4 :: (addr: u32) -> u32 {
             assert(false, "TODO: Read AI Registers at 0x%", formatInt(addr, 16));
         }
         if addr < 0x04700000 {
-            assert(false, "TODO: Read PI Registers at 0x%", formatInt(addr, 16));
+            off := (addr - 0x04600000) >> 2;
+            return mem.pi._32[off];
         }
         if addr < 0x04800000 {
-            assert(false, "TODO: Read RI Registers at 0x%", formatInt(addr, 16));
+            off := (addr - 0x04700000) >> 2;
+            return mem.ri._32[off];
         }
         if addr < 0x04900000 {
             off := (addr - 0x04800000) >> 2;
@@ -160,7 +175,7 @@ write_4 :: (addr: u32, val: u32, override := false) {
         assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
     }
     else if addr < 0x04000000 {
-        assert(false, "TODO: Write RDRAM Registers 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
+        // probably not important
     }
     else if addr < 0x05000000 {
         if addr < 0x04100000 {
@@ -184,7 +199,8 @@ write_4 :: (addr: u32, val: u32, override := false) {
             assert(false, "TODO: Write DP Span Registers 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
         }
         else if addr < 0x04400000 {
-            assert(false, "TODO: Write MI Registers 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
+            off := (addr - 0x04300000) >> 2;
+            mem.mi._32[off] = val;
         }
         else if addr < 0x04500000 {
             off := (addr - 0x04400000) >> 2;
@@ -199,11 +215,30 @@ write_4 :: (addr: u32, val: u32, override := false) {
         else if addr < 0x04700000 {
             off := (addr - 0x04600000) >> 2;
             mem.pi._32[off] = val;
-            if off == 2 assert(false, "TODO: PI DMA Read 0x% bytes");
-            if off == 3 assert(false, "TODO: PI DMA Write 0x% bytes");
+            if off == 2 assert(false, "TODO: PI DMA Read 0x% bytes", formatInt(val, 16, 8));
+            if off == 3 {
+                src := mem.pi._32[1];
+                dst := mem.pi._32[0];
+                assert((val + 1) % 4 == 0);
+                for 0..(val/4) {
+                    write_4(dst, read_4(src));
+                    dst += 4;
+                    src += 4;
+                }
+                // TODO: set interrupt
+            }
+            if off == 4 {
+                if val & 0b10 != 0 {
+                    // TODO: clear interrupt if bit 1
+                }
+                if val & 0b1 != 0 {
+                    mem.pi._32[4] = 0;
+                }
+            }
         }
         else if addr < 0x04800000 {
-            assert(false, "TODO: Write RI Registers 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
+            off := (addr - 0x04700000) >> 2;
+            mem.ri._32[off] = val;
         }
         else if addr < 0x04900000 {
             assert(false, "TODO: Write SI Registers 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
@@ -217,14 +252,17 @@ write_4 :: (addr: u32, val: u32, override := false) {
         assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
     }
     else if addr < 0x1fc00000 {
-        assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
+        if !override assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
+        mem.rom._32[(addr - 0x10000000) >> 2] = bswap(val);
     }
     else if addr < 0x1fc007c0 {
         if !override assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
         mem.boot_rom._32[(addr - 0x1fc00000) >> 2] = bswap(val);
     }
     else if addr < 0x1fc00800 {
-        mem.boot_ram._32[(addr - 0x1fc007c0) >> 2] = bswap(val);
+        off := (addr - 0x1fc007c0) >> 2;
+        mem.boot_ram._32[off] = bswap(val);
+        if off == 12 mem.boot_ram._32[15] = bswap(0x80);
     }
     else assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
 }

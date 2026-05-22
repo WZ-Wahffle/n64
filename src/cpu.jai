@@ -18,20 +18,20 @@ Cpu :: struct {
 
 cpu_instr_lut := (_:u32).[
     cpu_special,
+    cpu_regimm,
     null,
-    null,
-    null,
+    cpu_jal,
     cpu_beq,
     cpu_bne,
     null,
     null,
     cpu_addi,
     cpu_addiu,
-    null,
-    null,
+    cpu_slti,
+    cpu_sltiu,
     cpu_andi,
     cpu_ori,
-    null,
+    cpu_xori,
     cpu_lui,
     cpu_cop0,
     null,
@@ -39,7 +39,7 @@ cpu_instr_lut := (_:u32).[
     null,
     cpu_beql,
     cpu_bnel,
-    null,
+    cpu_blezl,
     null,
     null,
     null,
@@ -64,17 +64,17 @@ cpu_instr_lut := (_:u32).[
     null,
     null,
     null,
-    null,
+    cpu_cache,
 ];
 
 cpu_special_lut := (_:u32).[
-    null,
+    cpu_sll,
     null,
     cpu_srl,
     null,
+    cpu_sllv,
     null,
-    null,
-    null,
+    cpu_srlv,
     null,
     cpu_jr,
     null,
@@ -100,18 +100,18 @@ cpu_special_lut := (_:u32).[
     null,
     null,
     null,
+    cpu_add,
+    cpu_addu,
     null,
-    null,
-    null,
-    null,
-    null,
+    cpu_subu,
+    cpu_and,
     cpu_or,
+    cpu_xor,
     null,
     null,
     null,
-    null,
-    null,
-    null,
+    cpu_slt,
+    cpu_sltu,
     null,
     null,
     null,
@@ -133,6 +133,42 @@ cpu_special_lut := (_:u32).[
     null,
     null,
 ];
+
+cpu_regimm_lut := (_:u32).[
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    cpu_bgezal,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+];
+
 
 read_4_v :: (addr: u32) -> u32 {
     return read_4(virt2phys(addr));
@@ -176,6 +212,7 @@ execute_next :: () {
 }
 
 execute :: (ins: u32) {
+    cpu.remaining_cycles -= 1;
     cpu_instr_lut[ins >> 26](ins);
 }
 
