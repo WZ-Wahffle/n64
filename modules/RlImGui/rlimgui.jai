@@ -48,8 +48,6 @@ backend_set_clip_text :: (user_data: *void, text: *u8) #c_call {
 }
 
 setup_keymap :: () {
-	init(*key_map, 105);
-
 	table_add(*key_map, rl.KeyboardKey.KEY_APOSTROPHE,    im.Key.Apostrophe     );
 	table_add(*key_map, rl.KeyboardKey.KEY_COMMA,         im.Key.Comma          );
 	table_add(*key_map, rl.KeyboardKey.KEY_MINUS,         im.Key.Minus          );
@@ -158,9 +156,7 @@ setup_keymap :: () {
 }
 
 setup_mouse_cursors :: () {
-	init(*mouse_cursor_map, 9);
-
-	table_add(*mouse_cursor_map, im.MouseCursor.Arrow,      rl.MouseCursor.MOUSE_CURSOR_ARROW         );
+    table_add(*mouse_cursor_map, im.MouseCursor.Arrow,      rl.MouseCursor.MOUSE_CURSOR_ARROW         );
 	table_add(*mouse_cursor_map, im.MouseCursor.TextInput,  rl.MouseCursor.MOUSE_CURSOR_IBEAM         );
 	table_add(*mouse_cursor_map, im.MouseCursor.Hand,       rl.MouseCursor.MOUSE_CURSOR_POINTING_HAND );
 	table_add(*mouse_cursor_map, im.MouseCursor.ResizeAll,  rl.MouseCursor.MOUSE_CURSOR_RESIZE_ALL    );
