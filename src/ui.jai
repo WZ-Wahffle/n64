@@ -1,10 +1,17 @@
 FPS :: 60;
 CPU_CYCLES_PER_SECOND :: 93_750_000;
 CPU_CYCLES_PER_FRAME :: CPU_CYCLES_PER_SECOND / FPS;
+SCREEN_WIDTH :: 640;
+SCREEN_HEIGHT :: 480;
+
+WINDOW_WIDTH :: 1280;
+WINDOW_HEIGHT :: 960;
+#run assert(cast(float,WINDOW_WIDTH) / WINDOW_HEIGHT == cast(float,SCREEN_WIDTH) / SCREEN_HEIGHT, "Resolution must be 4:3!");
+#run assert(WINDOW_WIDTH % SCREEN_WIDTH == 0 && WINDOW_HEIGHT % SCREEN_HEIGHT == 0, "Resolution must be multiple of 640x480!");
 
 ui :: () {
     rl.SetTraceLogLevel(.LOG_ERROR);
-    rl.InitWindow(1280, 960, "n64");
+    rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "n64");
     rl.SetTargetFPS(FPS);
     im.CreateContext();
     im.GetIO().Fonts.AddFontFromMemoryTTF(im.GetIO().Fonts, font.data, xx font.count, 24);
@@ -17,21 +24,40 @@ ui :: () {
 
         if cpu.state == {
             case .STOPPED;
-            // this page intentionally left blank
+                // this page intentionally left blank
             case .STARTED;
-            execute_next();
-            cpu.state = .RUNNING;
-            #through;
+                execute_next();
+                cpu.state = .RUNNING;
+                #through;
             case .RUNNING;
-            cpu.remaining_cycles += CPU_CYCLES_PER_FRAME;
-            while cpu.remaining_cycles > 0 && cpu.state != .STOPPED execute_next();
-            if disasm_state.follow disasm_state.scroll_state = cpu.pc;
+                half_scanline_count := mem.vi._32[6] & 0x3ff;
+                if half_scanline_count == 0 {
+                    cpu.remaining_cycles += CPU_CYCLES_PER_FRAME;
+                    while cpu.remaining_cycles > 0 && cpu.state != .STOPPED execute_next();
+                } else {
+                    cycles_per_half_scanline := CPU_CYCLES_PER_FRAME / half_scanline_count;
+                    active_start := (mem.vi._32[10] >> 16) & 0x3ff;
+                    active_end := mem.vi._32[10] & 0x3ff;
+                    for 0..half_scanline_count-1 {
+                        mem.vi._32[4] += 1;
+                        if mem.vi._32[4] == half_scanline_count {
+                            mem.vi._32[4] = 0;
+                        }
+                        if mem.vi._32[4] >= active_start && mem.vi._32[4] < active_end {
+                            draw_scanline(mem.vi._32[4] - active_start, mem.vi._32[1] & 0xffffff, mem.vi._32[2] & 0xfff, mem.vi._32[0] & 0x3);
+                        }
+                        cpu.remaining_cycles += cycles_per_half_scanline;
+                        while cpu.remaining_cycles > 0 && cpu.state != .STOPPED execute_next();
+                    }
+                }
+                if disasm_state.follow disasm_state.scroll_state = cpu.pc;
         }
 
         rg.backend_frame_begin();
 
         cpu_window();
         disasm_window();
+        memory_window();
 
         rg.backend_frame_end();
         rl.EndDrawing();
@@ -158,22 +184,36 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             return tprint("SLL %, %, 0x%\0", rd, rt, formatInt(sa, 16));
             case 2;
             return tprint("SRL %, %, 0x%\0", rd, rt, formatInt(sa, 16));
+            case 3;
+            return tprint("SRA %, %, 0x%\0", rd, rt, formatInt(sa, 16));
             case 4;
             return tprint("SLLV %, %, %\0", rd, rt, rs);
             case 6;
             return tprint("SLRV %, %, %\0", rd, rt, rs);
             case 8;
             return tprint("JR %\0", rs), .{type=.JUMP};
+            case 9;
+            return tprint("JALR %\0", rs), .{type=.JUMP};
             case 13;
             idx := (val >> 6) & 0xfffff;
             if idx == 0 return "BREAK 0x0\0";
             return disasm_explicit(addr, cpu.bp[idx-1]), .{type=.BREAK, bp_idx=idx-1};
             case 16;
             return tprint("MFHI %\0", rd);
+            case 17;
+            return tprint("MTHI %\0", rs);
             case 18;
             return tprint("MFLO %\0", rd);
+            case 19;
+            return tprint("MTLO %\0", rs);
             case 25;
             return tprint("MULTU %, %\0", rs, rt);
+            case 26;
+            return tprint("DIV %, %\0", rs, rt);
+            case 29;
+            return tprint("DMULTU %, %\0", rs, rt);
+            case 31;
+            return tprint("DDIVU %, %\0", rs, rt);
             case 32;
             return tprint("ADD %, %, %\0", rd, rs, rt);
             case 33;
@@ -190,8 +230,12 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             return tprint("SLT %, %, %\0", rd, rs, rt);
             case 43;
             return tprint("SLTU %, %, %\0", rd, rs, rt);
+            case 60;
+            return tprint("DSLL32 %, %, 0x%\0", rd, rt, formatInt(sa, 16));
+            case 63;
+            return tprint("DSRA32 %, %, 0x%\0", rd, rt, formatInt(sa, 16));
             case;
-            assert(false, "% %", funct, formatInt(addr, 16));
+            return tprint("!SPECIAL %\0", funct);
         }
         case 1;
         if rt_idx == {
@@ -201,8 +245,10 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             if rs_idx == 0 then return tprint("BAL 0x%\0", formatInt(addr + imm + 4, 16, 8)), .{type=.CALL, off=cast,no_check(s32,imm + 4), cond=false};
             else return tprint("BGEZAL %, 0x%\0", rs, formatInt(addr + imm + 4, 16, 8)), .{type=.CALL, off=cast,no_check(s32,imm + 4), cond=true};
             case;
-            assert(false, "% %", rt_idx, formatInt(addr, 16));
+            return tprint("!REGIMM %\0", rt_idx);
         }
+        case 2;
+        return tprint("J 0x%\0", formatInt((addr & 0xf0000000) | (dest << 2), 16, 8));
         case 3;
         return tprint("JAL 0x%\0", formatInt((addr & 0xf0000000) | (dest << 2), 16, 8));
         case 4;
@@ -213,6 +259,10 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
         if imm & 0x8000 != 0 imm |= 0xffff0000;
         imm <<= 2;
         return tprint("BNE %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
+        case 6;
+        if imm & 0x8000 != 0 imm |= 0xffff0000;
+        imm <<= 2;
+        return tprint("BLEZ %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
         case 8;
         if imm & 0x8000 != 0 then imm |= 0xffff0000;
         return tprint("ADDI %, %, 0x%\0", rt, rs, formatInt(imm, 16));
@@ -235,10 +285,25 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
         case 17; #through;
         case 18;
         if rs_idx == {
+            case 0;
+            return tprint("MFC% %, %\0", op - 16, rt, rd);
             case 4;
             return tprint("MTC% %, %\0", op - 16, rt, rd);
+            case 16;
+            if (imm & 0x3f) == {
+                case 1;
+                return "TLBR";
+                case 2;
+                return "TLBWI";
+                case 8;
+                return "TLBP";
+                case 24;
+                return "ERET";
+                case;
+                return tprint("!CP0 %\0", imm & 0x3f);
+            }
             case;
-            assert(false, "% %", rs, formatInt(addr, 16));
+            return tprint("!COP% %\0", op - 16, rs_idx);
         }
         case 20;
         if imm & 0x8000 != 0 imm |= 0xffff0000;
@@ -252,18 +317,29 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
         if imm & 0x8000 != 0 imm |= 0xffff0000;
         imm <<= 2;
         return tprint("BLEZL %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
+        case 32;
+        return tprint("LB %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 35;
         return tprint("LW %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
+        case 36;
+        return tprint("LBU %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
+        case 37;
+        return tprint("LHU %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
+        case 40;
+        return tprint("SB %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
+        case 41;
+        return tprint("SH %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 43;
         return tprint("SW %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 47;
         return tprint("CACHE %, 0x%(%)\0", rt_idx, formatInt(imm, 16), rs);
+        case 55;
+        return tprint("LD %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 63;
         return tprint("SD %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case;
-        assert(false, "% %", op, formatInt(addr, 16));
+        return tprint("!INS %\0", funct);
     }
-    return "";
 }
 
 disasm_state : struct {
@@ -340,8 +416,8 @@ disasm_window :: () {
                 return in;
             }
             item_rect := im.GetItemRectMin();
-            src_y := (item_rect.y + im.GetTextLineHeightWithSpacing() + im.GetTextLineHeight() / 2);
-            dst_y := src_y + im.GetTextLineHeightWithSpacing() * view[line].info.off / 4;
+            src_y := (item_rect.y + (im.GetTextLineHeightWithSpacing()) + (im.GetTextLineHeight() / 2));
+            dst_y := src_y + (im.GetTextLineHeightWithSpacing()) * view[line].info.off / 4;
             min_x := item_rect.x;
             max_x := min_x + 20;
             if every_other min_x += 5;
@@ -375,5 +451,184 @@ disasm_window :: () {
     }
 
     im.EndChild();
+    im.End();
+}
+
+mem_state : struct {
+    Mem_Region :: enum {
+        NONE;
+        RAM;
+        DMEM;
+        IMEM;
+        RDP_CMD;
+        RDP_SPAN;
+        MI;
+        VI;
+        AI;
+        PI;
+        RI;
+        SI;
+        CART;
+        BOOT_ROM;
+        BOOT_RAM;
+    };
+
+    Mem_Size :: enum {
+        _8;
+        _16;
+        _32;
+        _64;
+    }
+
+    elem : [..]struct {
+        region : Mem_Region;
+        size : Mem_Size;
+        scroll_state := 0;
+        jump_buffer: [8]u8;
+    };
+};
+
+memory_window :: () {
+    region_names :: string.[
+        "None",
+        "RAM",
+        "DMEM",
+        "IMEM",
+        "RDP command",
+        "RDP span",
+        "MI",
+        "VI",
+        "AI",
+        "PI",
+        "RI",
+        "SI",
+        "Cartridge",
+        "Boot ROM",
+        "Boot RAM",
+    ];
+
+    size_names :: string.[
+        "8-Bit",
+        "16-Bit",
+        "32-Bit",
+        "64-Bit",
+    ];
+
+    get_region :: (region: mem_state.Mem_Region) -> (addr: *u8, size: int) {
+        if #complete region == {
+        case .NONE;
+            return null, 0;
+        case .RAM;
+            return mem.ram._8.data, mem.ram._8.count;
+        case .DMEM;
+            return mem.dmem._8.data, mem.dmem._8.count;
+        case .IMEM;
+            return mem.imem._8.data, mem.imem._8.count;
+        case .RDP_CMD;
+            return mem.rdp_cmd._8.data, mem.rdp_cmd._8.count;
+        case .RDP_SPAN;
+            return null, 0;
+        case .MI;
+            return mem.mi._8.data, mem.mi._8.count;
+        case .VI;
+            return mem.vi._8.data, mem.vi._8.count;
+        case .AI;
+            return mem.ai._8.data, mem.ai._8.count;
+        case .PI;
+            return mem.pi._8.data, mem.pi._8.count;
+        case .RI;
+            return mem.ri._8.data, mem.ri._8.count;
+        case .SI;
+            return mem.si._8.data, mem.si._8.count;
+        case .CART;
+            return mem.rom._8.data, mem.rom._8.count;
+        case .BOOT_ROM;
+            return mem.boot_rom._8.data, mem.boot_rom._8.count;
+        case .BOOT_RAM;
+            return mem.boot_ram._8.data, mem.boot_ram._8.count;
+        }
+    }
+
+    im.Begin("memory", flags=.NoScrollbar | .NoScrollWithMouse);
+    im.BeginTabBar("##memtabbar");
+    for * mem_state.elem {
+        if im.BeginTabItem(tprint("%\0", it_index + 1).data) {
+            if im.BeginCombo(tprint("##memregion%\0", it_index).data, region_names[it.region].data) {
+                for region, idx : region_names {
+                    is_selected := idx == xx it.region;
+                    if im.Selectable(region.data, is_selected) {
+                        it.region = xx idx;
+                    }
+                    if is_selected {
+                        im.SetItemDefaultFocus();
+                    }
+                }
+                im.EndCombo();
+            }
+
+            im.SameLine();
+
+            if im.BeginCombo(tprint("##memsize%\0", it_index).data, size_names[it.size].data) {
+                for size, idx : size_names {
+                    is_selected := idx == xx it.size;
+                    if im.Selectable(size.data, is_selected) {
+                        it.size = xx idx;
+                    }
+                    if is_selected {
+                        im.SetItemDefaultFocus();
+                    }
+                }
+                im.EndCombo();
+            }
+
+            im.Text("0x");
+            im.SameLine();
+            if im.InputText("Jump to...", it.jump_buffer.data, 8) {
+                str := string.{7, it.jump_buffer.data};
+                parsed := string_to_int(str, 16);
+                it.scroll_state = parsed / 16;
+            }
+
+            if it.region != .NONE {
+                im.Separator();
+                im.BeginChild(tprint("##memchild%\0", it_index).data, flags=.NoScrollbar | .NoScrollWithMouse);
+                if im.IsWindowHovered() {
+                    if (im.GetIO().MouseWheel) < 0 {
+                        it.scroll_state += 1;
+                    } else if (im.GetIO().MouseWheel) > 0 {
+                        it.scroll_state -= 1;
+                        it.scroll_state = max(it.scroll_state, 0);
+                    }
+                }
+                addr, size := get_region(it.region);
+                line_count : int = xx ceil(size / 16.0);
+                word_size : int = xx pow(2.0, xx it.size);
+                table_line_width : int = xx (16 / word_size);
+                im.BeginTable(tprint("##memview%\0", it_index).data, xx (table_line_width + 1), .SizingFixedFit);
+                im.TableNextRow();
+                for y_off : 0..cast(int, im.GetWindowSize().y) {
+                    if y_off + it.scroll_state > line_count {
+                        break;
+                    }
+                    im.TableNextColumn();
+                    im.Text_CFormat("0x%08x", (y_off + it.scroll_state) * 16);
+                    for x_idx : 0..table_line_width-1 {
+                        im.TableNextColumn();
+                        formats :: string.["%02llx", "%04llx", "%08llx", "%016llx"];
+                        masks :: u64.[0xff, 0xffff, 0xffffffff, 0xffffffffffffffff];
+                        im.Text_CFormat(formats[it.size].data, (cast(*u64, addr + (y_off + it.scroll_state) * 16 + x_idx * word_size)).* & masks[it.size]);
+                    }
+                }
+                im.EndTable();
+                im.EndChild();
+            }
+
+            im.EndTabItem();
+        }
+    }
+    if im.TabItemButton("+") {
+        array_add(*mem_state.elem, .{});
+    }
+    im.EndTabBar();
     im.End();
 }

@@ -1,4 +1,5 @@
 Rsp :: struct {
+    pc: u32;
     cp0: [16]u32;
 }
 

@@ -52,6 +52,7 @@ main :: () {
     ui();
 }
 
+#load "vi.jai";
 #load "style.jai";
 #load "ui.jai";
 #load "cpu.jai";

@@ -7,23 +7,25 @@ Cpu_State :: enum {
 Cpu :: struct {
     gpr: [32]u64;
     cp0: [32]u32;
+    tlb: [32]struct {entry_lo0: u32; entry_lo1: u32; entry_hi: u32; page_mask: u32;};
+    fcr: [32]u32;
     pc: u32 = 0xbfc00000;
     hi: u64;
     lo: u64;
 
     bp: [32]u32;
     state := Cpu_State.STOPPED;
-    remaining_cycles := 0;
+    remaining_cycles := 0.0;
 }
 
 cpu_instr_lut := (_:u32).[
     cpu_special,
     cpu_regimm,
-    null,
+    cpu_j,
     cpu_jal,
     cpu_beq,
     cpu_bne,
-    null,
+    cpu_blez,
     null,
     cpu_addi,
     cpu_addiu,
@@ -34,7 +36,7 @@ cpu_instr_lut := (_:u32).[
     cpu_xori,
     cpu_lui,
     cpu_cop0,
-    null,
+    cpu_cop1,
     null,
     null,
     cpu_beql,
@@ -49,35 +51,51 @@ cpu_instr_lut := (_:u32).[
     null,
     null,
     null,
-    null,
+    cpu_lb,
     null,
     null,
     cpu_lw,
+    cpu_lbu,
+    cpu_lhu,
     null,
     null,
-    null,
-    null,
-    null,
-    null,
+    cpu_sb,
+    cpu_sh,
     null,
     cpu_sw,
     null,
     null,
     null,
     cpu_cache,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    cpu_ld,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    cpu_sd,
 ];
 
 cpu_special_lut := (_:u32).[
     cpu_sll,
     null,
     cpu_srl,
-    null,
+    cpu_sra,
     cpu_sllv,
     null,
     cpu_srlv,
     null,
     cpu_jr,
-    null,
+    cpu_jalr,
     null,
     null,
     null,
@@ -85,21 +103,21 @@ cpu_special_lut := (_:u32).[
     null,
     null,
     cpu_mfhi,
-    null,
+    cpu_mthi,
     cpu_mflo,
-    null,
+    cpu_mtlo,
     null,
     null,
     null,
     null,
     null,
     cpu_multu,
+    cpu_div,
     null,
     null,
+    cpu_dmultu,
     null,
-    null,
-    null,
-    null,
+    cpu_ddivu,
     cpu_add,
     cpu_addu,
     null,
@@ -128,10 +146,10 @@ cpu_special_lut := (_:u32).[
     null,
     null,
     null,
+    cpu_dsll32,
     null,
     null,
-    null,
-    null,
+    cpu_dsra32,
 ];
 
 cpu_regimm_lut := (_:u32).[
@@ -169,13 +187,28 @@ cpu_regimm_lut := (_:u32).[
     null,
 ];
 
+read_1_v :: (addr: u32) -> u8 {
+    return read_1(virt2phys(addr));
+}
+
+read_2_v :: (addr: u32) -> u16 {
+    return read_2(virt2phys(addr));
+}
 
 read_4_v :: (addr: u32) -> u32 {
     return read_4(virt2phys(addr));
 }
 
+write_1_v :: (addr: u32, val: u8, override := false) {
+    write_1(virt2phys(addr), val, override);
+}
+
+write_2_v :: (addr: u32, val: u16, override := false) {
+    write_2(virt2phys(addr), val, override);
+}
+
 write_4_v :: (addr: u32, val: u32, override := false) {
-    write_4(virt2phys(addr), val, true);
+    write_4(virt2phys(addr), val, override);
 }
 
 virt2phys :: (addr: u32) -> u32 {
@@ -218,4 +251,5 @@ execute :: (ins: u32) {
 
 cpu_reset :: () {
     for * cpu.bp it.* = 0xffffffff;
+    mem.boot_ram._32[9] = 0x003f0000;
 }
