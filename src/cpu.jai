@@ -1,13 +1,13 @@
-Cpu_State :: enum {
-    RUNNING;
-    STOPPED;
-    STARTED;
-}
-
 Cpu :: struct {
     gpr: [32]u64;
     cp0: [32]u32;
     tlb: [32]struct {entry_lo0: u32; entry_lo1: u32; entry_hi: u32; page_mask: u32;};
+    fgr: [64]union {
+        i32: u32;
+        i64: u64;
+        f32: float32;
+        f64: float64;
+    };
     fcr: [32]u32;
     pc: u32 = 0xbfc00000;
     hi: u64;
@@ -16,6 +16,47 @@ Cpu :: struct {
     bp: [32]u32;
     state := Cpu_State.STOPPED;
     remaining_cycles := 0.0;
+}
+
+Cpu_State :: enum {
+    RUNNING;
+    STOPPED;
+    STARTED;
+}
+
+Cp0 :: enum {
+    INDEX;
+    RANDOM;
+    ENTRYLO0;
+    ENTRYLO1;
+    CONTEXT;
+    PAGEMASK;
+    WIRED;
+    _7;
+    BADVADDR;
+    COUNT;
+    ENTRYHI;
+    COMPARE;
+    STATUS;
+    CAUSE;
+    EPC;
+    PRID;
+    CONFIG;
+    LLADDR;
+    WATCHLO;
+    WATCHHI;
+    XCONTEXT;
+    _21;
+    _22;
+    _23;
+    _24;
+    _25;
+    PARITYERROR;
+    CACHEERROR;
+    TAGLO;
+    TAGHI;
+    ERROREPC;
+    _31;
 }
 
 cpu_instr_lut := (_:u32).[
@@ -52,7 +93,7 @@ cpu_instr_lut := (_:u32).[
     null,
     null,
     cpu_lb,
-    null,
+    cpu_lh,
     null,
     cpu_lw,
     cpu_lbu,
@@ -68,7 +109,7 @@ cpu_instr_lut := (_:u32).[
     null,
     cpu_cache,
     null,
-    null,
+    cpu_lwc1,
     null,
     null,
     null,
@@ -113,7 +154,7 @@ cpu_special_lut := (_:u32).[
     null,
     cpu_multu,
     cpu_div,
-    null,
+    cpu_divu,
     null,
     cpu_dmultu,
     null,
@@ -153,8 +194,8 @@ cpu_special_lut := (_:u32).[
 ];
 
 cpu_regimm_lut := (_:u32).[
-    null,
-    null,
+    cpu_bltz,
+    cpu_bgez,
     null,
     null,
     null,
@@ -246,10 +287,31 @@ execute_next :: () {
 
 execute :: (ins: u32) {
     cpu.remaining_cycles -= 1;
+    cpu.cp0[Cp0.COUNT] += 1;
     cpu_instr_lut[ins >> 26](ins);
 }
 
 cpu_reset :: () {
     for * cpu.bp it.* = 0xffffffff;
     mem.boot_ram._32[9] = 0x003f0000;
+}
+
+check_rcp_interrupts :: () {
+    if mem.mi._32[Mi.INTR_MASK] & mem.mi._32[Mi.INTR] != 0 {
+        cpu.cp0[Cp0.CAUSE] |= 0x400;
+    } else {
+        cpu.cp0[Cp0.CAUSE] &= ~cast(u32,0x400);
+    }
+
+    check_interrupts();
+}
+
+check_interrupts :: () {
+    if cpu.cp0[Cp0.STATUS] & 0x7 == 0x1 {
+        if cpu.cp0[Cp0.STATUS] & cpu.cp0[Cp0.CAUSE] & 0xff00 != 0 {
+            cpu.cp0[Cp0.STATUS] |= 0b10;
+            cpu.cp0[Cp0.EPC] = cpu.pc;
+            cpu.pc = 0x80000000;
+        }
+    }
 }

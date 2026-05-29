@@ -47,6 +47,9 @@ main :: () {
 
     memcpy(mem.rom._8.data, rom.data, rom.count);
 
+    // bypass checksum to allow breakpoints
+    mem.rom._32[0x688 >> 2] = 0;
+
     cpu_reset();
     rsp_reset();
     ui();

@@ -22,6 +22,9 @@ ui :: () {
         rl.ClearBackground(rl.BLACK);
         rl.BeginDrawing();
 
+        if rl.IsKeyDown(rl.KeyboardKey.KEY_F10) cpu.state = .STARTED;
+        if rl.IsKeyPressed(rl.KeyboardKey.KEY_F11) cpu.state = .STARTED;
+
         if cpu.state == {
             case .STOPPED;
                 // this page intentionally left blank
@@ -30,24 +33,36 @@ ui :: () {
                 cpu.state = .RUNNING;
                 #through;
             case .RUNNING;
-                half_scanline_count := mem.vi._32[6] & 0x3ff;
+                half_scanline_count := mem.vi._32[Vi.V_SYNC] & 0x3ff;
                 if half_scanline_count == 0 {
                     cpu.remaining_cycles += CPU_CYCLES_PER_FRAME;
                     while cpu.remaining_cycles > 0 && cpu.state != .STOPPED execute_next();
                 } else {
                     cycles_per_half_scanline := CPU_CYCLES_PER_FRAME / half_scanline_count;
-                    active_start := (mem.vi._32[10] >> 16) & 0x3ff;
-                    active_end := mem.vi._32[10] & 0x3ff;
+                    active_start := (mem.vi._32[Vi.V_START] >> 16) & 0x3ff;
+                    active_end := mem.vi._32[Vi.V_START] & 0x3ff;
                     for 0..half_scanline_count-1 {
-                        mem.vi._32[4] += 1;
-                        if mem.vi._32[4] == half_scanline_count {
-                            mem.vi._32[4] = 0;
+                        mem.vi._32[Vi.CURRENT] += 1;
+                        if mem.vi._32[Vi.CURRENT] == half_scanline_count {
+                            mem.vi._32[Vi.CURRENT] = 0;
                         }
-                        if mem.vi._32[4] >= active_start && mem.vi._32[4] < active_end {
-                            draw_scanline(mem.vi._32[4] - active_start, mem.vi._32[1] & 0xffffff, mem.vi._32[2] & 0xfff, mem.vi._32[0] & 0x3);
+                        if mem.vi._32[Vi.CURRENT] >= active_start && mem.vi._32[Vi.CURRENT] < active_end {
+                            draw_scanline(mem.vi._32[Vi.CURRENT] - active_start, mem.vi._32[Vi.ORIGIN] & 0xffffff, mem.vi._32[Vi.WIDTH] & 0xfff, mem.vi._32[Vi.STATUS] & 0x3);
                         }
+
+                        if mem.vi._32[Vi.CURRENT] == mem.vi._32[Vi.INTR] {
+                            mem.mi._32[Mi.INTR] |= xx Mi_Intr_R.VI;
+                        }
+
+                        check_rcp_interrupts();
+
                         cpu.remaining_cycles += cycles_per_half_scanline;
                         while cpu.remaining_cycles > 0 && cpu.state != .STOPPED execute_next();
+
+                        if cpu.state == .STOPPED {
+                            mem.vi._32[Vi.CURRENT] = 0;
+                            break;
+                        }
                     }
                 }
                 if disasm_state.follow disasm_state.scroll_state = cpu.pc;
@@ -96,7 +111,7 @@ cpu_window :: () {
     im.Text_CFormat("PC: 0x%08x", cpu.pc);
     if im.TreeNode("GPRs") {
         for regs {
-                im.Text_CFormat("%s: 0x%016x", it.data, cpu.gpr[it_index]);
+                im.Text_CFormat("%s: 0x%016llx", it.data, cpu.gpr[it_index]);
             }
         im.TreePop();
     }
@@ -197,6 +212,8 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             case 13;
             idx := (val >> 6) & 0xfffff;
             if idx == 0 return "BREAK 0x0\0";
+            if idx == 0x1800 return "BREAK 0x1800\0";
+            if idx == 0x1c00 return "BREAK 0x1c00\0";
             return disasm_explicit(addr, cpu.bp[idx-1]), .{type=.BREAK, bp_idx=idx-1};
             case 16;
             return tprint("MFHI %\0", rd);
@@ -210,6 +227,8 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             return tprint("MULTU %, %\0", rs, rt);
             case 26;
             return tprint("DIV %, %\0", rs, rt);
+            case 27;
+            return tprint("DIVU %, %\0", rs, rt);
             case 29;
             return tprint("DMULTU %, %\0", rs, rt);
             case 31;
@@ -239,6 +258,14 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
         }
         case 1;
         if rt_idx == {
+            case 0;
+            if imm & 0x8000 != 0 imm |= 0xffff0000;
+            imm <<= 2;
+            return tprint("BLTZ %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
+            case 1;
+            if imm & 0x8000 != 0 imm |= 0xffff0000;
+            imm <<= 2;
+            return tprint("BGEZ %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
             case 17;
             if imm & 0x8000 != 0 imm |= 0xffff0000;
             imm <<= 2;
@@ -319,6 +346,8 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
         return tprint("BLEZL %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
         case 32;
         return tprint("LB %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
+        case 33;
+        return tprint("LH %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 35;
         return tprint("LW %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 36;

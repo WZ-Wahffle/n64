@@ -21,6 +21,165 @@ Memory :: struct {
     rom : Mem(0xfc00000);
 }
 
+Sp :: enum {
+    MEM_ADDR;
+    DRAM_ADDR;
+    RD_LEN;
+    WR_LEN;
+    STATUS;
+    DMA_FULL;
+    DMA_BUSY;
+    SEMAPHORE;
+}
+
+Sp_Status_W :: enum {
+    CLR_HALT :: 0x1;
+    SET_HALT :: 0x2;
+    CLR_BROKE :: 0x4;
+    CLR_INTR :: 0x8;
+    SET_INTR :: 0x10;
+    CLR_SSTEP :: 0x20;
+    SET_SSTEP :: 0x40;
+    CLR_INTR_BREAK :: 0x80;
+    SET_INTR_BREAK :: 0x100;
+    CLR_SIG0 :: 0x200;
+    SET_SIG0 :: 0x400;
+    CLR_SIG1 :: 0x800;
+    SET_SIG1 :: 0x1000;
+    CLR_SIG2 :: 0x2000;
+    SET_SIG2 :: 0x4000;
+    CLR_SIG3 :: 0x8000;
+    SET_SIG3 :: 0x10000;
+    CLR_SIG4 :: 0x20000;
+    SET_SIG4 :: 0x40000;
+    CLR_SIG5 :: 0x80000;
+    SET_SIG5 :: 0x100000;
+    CLR_SIG6 :: 0x200000;
+    SET_SIG6 :: 0x400000;
+    CLR_SIG7 :: 0x800000;
+    SET_SIG7 :: 0x1000000;
+}
+
+Sp_Status_R :: enum {
+    HALT :: 0x1;
+    BROKE :: 0x2;
+    DMA_BUSY :: 0x4;
+    DMA_FULL :: 0x8;
+    IO_FULL :: 0x10;
+    SSTEP :: 0x20;
+    INTR_BREAK :: 0x40;
+    SIG0 :: 0x80;
+    SIG1 :: 0x100;
+    SIG2 :: 0x200;
+    SIG3 :: 0x400;
+    SIG4 :: 0x800;
+    SIG5 :: 0x1000;
+    SIG6 :: 0x2000;
+    SIG7 :: 0x4000;
+}
+
+Dp_Cmd :: enum {
+    START;
+    END;
+    CURRENT;
+    STATUS;
+    CLOCK;
+    BUFBUSY;
+    PIPEBUSY;
+    TMEM;
+}
+
+Dp_Cmd_Status_W :: enum u32 {
+    CLR_XBUS_DMEM_DMA :: 0x1;
+    SET_XBUS_DMEM_DMA :: 0x2;
+    CLR_FREEZE :: 0x4;
+    SET_FREEZE :: 0x8;
+    CLR_FLUSH :: 0x10;
+    SET_FLUSH :: 0x20;
+    CLR_TMEM_CTR :: 0x40;
+    CLR_PIPE_CTR :: 0x80;
+    CLR_CMD_CTR :: 0x100;
+    CLR_CLOCK_CTR :: 0x200;
+}
+
+Dp_Cmd_Status_R :: enum u32 {
+    XBUS_DMEM_DMA :: 0x1;
+    FREEZE :: 0x2;
+    FLUSH :: 0x4;
+    START_GCLK :: 0x8;
+    TMEM_BUSY :: 0x10;
+    PIPE_BUSY :: 0x20;
+    CMD_BUSY :: 0x40;
+    CBUF_READY :: 0x80;
+    DMA_BUSY :: 0x100;
+    END_VALID :: 0x200;
+    START_VALID :: 0x400;
+}
+
+Mi :: enum {
+    INIT_MODE;
+    VERSION;
+    INTR;
+    INTR_MASK;
+}
+
+Mi_Mode_W :: enum u32 {
+    CLR_INIT :: 0x80;
+    SET_INIT :: 0x100;
+    CLR_EBUS :: 0x200;
+    SET_EBUS :: 0x400;
+    CLR_DP_INTR :: 0x800;
+    CLR_RDRAM :: 0x1000;
+    SET_RDRAM :: 0x2000;
+}
+
+Mi_Mode_R :: enum u32 {
+    INIT :: 0x80;
+    EBUS :: 0x100;
+    RDRAM :: 0x200;
+}
+
+Mi_Intr_Mask_W :: enum u32 {
+    CLR_SP :: 0x1;
+    SET_SP :: 0x2;
+    CLR_SI :: 0x4;
+    SET_SI :: 0x8;
+    CLR_AI :: 0x10;
+    SET_AI :: 0x20;
+    CLR_VI :: 0x40;
+    SET_VI :: 0x80;
+    CLR_PI :: 0x100;
+    SET_PI :: 0x200;
+    CLR_DP :: 0x400;
+    SET_DP :: 0x800;
+}
+
+Mi_Intr_R :: enum u32 {
+    SP :: 0x1;
+    SI :: 0x2;
+    AI :: 0x4;
+    VI :: 0x8;
+    PI :: 0x10;
+    DP :: 0x20;
+}
+
+Vi :: enum {
+    STATUS;
+    ORIGIN;
+    WIDTH;
+    INTR;
+    CURRENT;
+    BURST;
+    V_SYNC;
+    H_SYNC;
+    LEAP;
+    H_START;
+    V_START;
+    V_BURST;
+    X_SCALE;
+    Y_SCALE;
+}
+
 wswap :: inline (val: u32) -> u32 {
     #asm {
         bswap.32 val;
@@ -206,26 +365,30 @@ write_4 :: (addr: u32, val: u32, override := false) {
         }
         else if addr < 0x04400000 {
             off := (addr - 0x04300000) >> 2;
-            if off == 3 {
-                if val & 0x1 != 0 then mem.mi._32[3] &= 0xfffe;
-                if val & 0x2 != 0 then mem.mi._32[3] |= 0x1;
-                if val & 0x4 != 0 then mem.mi._32[3] &= 0xfffd;
-                if val & 0x8 != 0 then mem.mi._32[3] |= 0x2;
-                if val & 0x10 != 0 then mem.mi._32[3] &= 0xfffb;
-                if val & 0x20 != 0 then mem.mi._32[3] |= 0x4;
-                if val & 0x40 != 0 then mem.mi._32[3] &= 0xfff7;
-                if val & 0x80 != 0 then mem.mi._32[3] |= 0x8;
-                if val & 0x100 != 0 then mem.mi._32[3] &= 0xffef;
-                if val & 0x200 != 0 then mem.mi._32[3] |= 0x10;
-                if val & 0x400 != 0 then mem.mi._32[3] &= 0xffdf;
-                if val & 0x800 != 0 then mem.mi._32[3] |= 0x20;
+            if off == xx Mi.INTR_MASK {
+                if val & xx Mi_Intr_Mask_W.CLR_SP != 0 then mem.mi._32[Mi.INTR_MASK] &= xx ~Mi_Intr_R.SP;
+                if val & xx Mi_Intr_Mask_W.SET_SP != 0 then mem.mi._32[Mi.INTR_MASK] |= xx Mi_Intr_R.SP;
+                if val & xx Mi_Intr_Mask_W.CLR_SI != 0 then mem.mi._32[Mi.INTR_MASK] &= xx ~Mi_Intr_R.SI;
+                if val & xx Mi_Intr_Mask_W.SET_SI != 0 then mem.mi._32[Mi.INTR_MASK] |= xx Mi_Intr_R.SI;
+                if val & xx Mi_Intr_Mask_W.CLR_AI != 0 then mem.mi._32[Mi.INTR_MASK] &= xx ~Mi_Intr_R.AI;
+                if val & xx Mi_Intr_Mask_W.SET_AI != 0 then mem.mi._32[Mi.INTR_MASK] |= xx Mi_Intr_R.AI;
+                if val & xx Mi_Intr_Mask_W.CLR_VI != 0 then mem.mi._32[Mi.INTR_MASK] &= xx ~Mi_Intr_R.VI;
+                if val & xx Mi_Intr_Mask_W.SET_VI != 0 then mem.mi._32[Mi.INTR_MASK] |= xx Mi_Intr_R.VI;
+                if val & xx Mi_Intr_Mask_W.CLR_PI != 0 then mem.mi._32[Mi.INTR_MASK] &= xx ~Mi_Intr_R.PI;
+                if val & xx Mi_Intr_Mask_W.SET_PI != 0 then mem.mi._32[Mi.INTR_MASK] |= xx Mi_Intr_R.PI;
+                if val & xx Mi_Intr_Mask_W.CLR_DP != 0 then mem.mi._32[Mi.INTR_MASK] &= xx ~Mi_Intr_R.DP;
+                if val & xx Mi_Intr_Mask_W.SET_DP != 0 then mem.mi._32[Mi.INTR_MASK] |= xx Mi_Intr_R.DP;
             } else {
                 mem.mi._32[off] = val;
             }
         }
         else if addr < 0x04500000 {
             off := (addr - 0x04400000) >> 2;
-            mem.vi._32[off] = val;
+            if off == xx Vi.CURRENT {
+                mem.mi._32[Mi.INTR] &= xx ~Mi_Intr_R.VI;
+            } else {
+                mem.vi._32[off] = val;
+            }
         }
         else if addr < 0x04600000 {
             off := (addr - 0x04500000) >> 2;
@@ -246,11 +409,12 @@ write_4 :: (addr: u32, val: u32, override := false) {
                     dst += 4;
                     src += 4;
                 }
-                // TODO: set interrupt
+
+                mem.mi._32[Mi.INTR] |= xx Mi_Intr_R.PI;
             }
             if off == 4 {
                 if val & 0b10 != 0 {
-                    // TODO: clear interrupt if bit 1
+                    mem.mi._32[Mi.INTR] &= ~cast(u32, Mi_Intr_R.PI);
                 }
                 if val & 0b1 != 0 {
                     // TODO: reset controller
