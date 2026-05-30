@@ -88,6 +88,12 @@ cpu_addu :: (ins: u32) {
     cpu_reg_dst(rd, sign_extend_4((cpu_reg_src(rs) + cpu_reg_src(rt)) & 0xffffffff));
 }
 
+cpu_sub :: (ins: u32) {
+    rs, rt, rd := decode_r(ins);
+    cpu_reg_dst(rd, sign_extend_4((cpu_reg_src(rs) - cpu_reg_src(rt)) & 0xffffffff));
+    // TODO: overflow exception
+}
+
 cpu_subu :: (ins: u32) {
     rs, rt, rd := decode_r(ins);
     cpu_reg_dst(rd, sign_extend_4((cpu_reg_src(rs) - cpu_reg_src(rt)) & 0xffffffff));
@@ -267,6 +273,30 @@ cpu_lwc1 :: (ins: u32) {
     cpu.fgr[ft].i32 = read_4_v(addr);
 }
 
+cpu_ldc1 :: (ins: u32) {
+    base, ft, imm := decode_i(ins);
+    addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
+    addr &= 0xfffffff8;
+    hi : u64 = read_4_v(addr);
+    lo : u64 = read_4_v(addr + 4);
+    cpu.fgr[ft].i64 = (hi << 32) | lo;
+}
+
+cpu_swc1 :: (ins: u32) {
+    base, ft, imm := decode_i(ins);
+    addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
+    write_4_v(addr, xx cpu.fgr[ft].i32);
+}
+
+cpu_sdc1 :: (ins: u32) {
+    base, ft, imm := decode_i(ins);
+    addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
+    addr &= 0xfffffff8;
+    val := cpu.fgr[ft].i64;
+    write_4_v(addr, xx (val >> 32));
+    write_4_v(addr + 4, xx (val & 0xffffffff));
+}
+
 cpu_beq :: (ins: u32) {
     rs, rt, imm := decode_i(ins);
     if imm & 0x8000 != 0 then imm |= 0xffff0000;
@@ -297,6 +327,14 @@ cpu_blez :: (ins: u32) {
     addr := cpu.pc + (imm << 2);
 
     cpu_branch(addr, cpu_reg_src(rs) & 0x80000000 != 0 || cpu_reg_src(rs) == 0);
+}
+
+cpu_bgtz :: (ins: u32) {
+    rs, _, imm := decode_i(ins);
+    if imm & 0x8000 != 0 then imm |= 0xffff0000;
+    addr := cpu.pc + (imm << 2);
+
+    cpu_branch(addr, cpu_reg_src(rs) & 0x80000000 == 0 && cpu_reg_src(rs) != 0);
 }
 
 cpu_bgez :: (ins: u32) {
@@ -499,7 +537,7 @@ cpu_cache :: (ins: u32) {
     base, op, off := decode_i(ins);
     if off & 0x8000 != 0 then off |= 0xffff0000;
     addr := cpu_reg_src(base) + (off << 2);
-    print("CACHE operation % on 0x%\n", op, formatInt(addr, 16, 8));
+    // print("CACHE operation % on 0x%\n", op, formatInt(addr, 16, 8));
 }
 
 cpu_break :: (ins: u32) {

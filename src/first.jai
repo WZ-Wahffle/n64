@@ -12,6 +12,7 @@ boot_rom :: #run read_entire_file("../in/boot_rom.bin");
 cpu: Cpu;
 rsp: Rsp;
 mem: Memory;
+ai: Ai;
 
 main :: () {
     assert(mem.boot_rom._8.count == boot_rom.count, "Incorrect boot rom size");
@@ -55,6 +56,7 @@ main :: () {
     ui();
 }
 
+#load "ai.jai";
 #load "vi.jai";
 #load "style.jai";
 #load "ui.jai";

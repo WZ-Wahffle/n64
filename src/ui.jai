@@ -237,6 +237,8 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             return tprint("ADD %, %, %\0", rd, rs, rt);
             case 33;
             return tprint("ADDU %, %, %\0", rd, rs, rt);
+            case 34;
+            return tprint("SUB %, %, %\0", rd, rs, rt);
             case 35;
             return tprint("SUBU %, %, %\0", rd, rs, rt);
             case 36;
@@ -290,6 +292,10 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
         if imm & 0x8000 != 0 imm |= 0xffff0000;
         imm <<= 2;
         return tprint("BLEZ %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
+        case 7;
+        if imm & 0x8000 != 0 imm |= 0xffff0000;
+        imm <<= 2;
+        return tprint("BGTZ %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
         case 8;
         if imm & 0x8000 != 0 then imm |= 0xffff0000;
         return tprint("ADDI %, %, 0x%\0", rt, rs, formatInt(imm, 16));

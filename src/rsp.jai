@@ -4,5 +4,5 @@ Rsp :: struct {
 }
 
 rsp_reset :: () {
-    rsp.cp0[4] = 1;
+    rsp.cp0[Sp.STATUS] = xx Sp_Status_R.HALT;
 }
