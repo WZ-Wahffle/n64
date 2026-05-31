@@ -280,12 +280,14 @@ cpu_reg_dst :: inline (idx: u32, val: u64) {
     if idx > 0 cpu.gpr[idx] = val;
 }
 
-execute_next :: () {
-    ins := cpu_next();
-    execute(ins);
+cpu_execute_next :: () {
+    if cpu.remaining_cycles > 0 {
+        ins := cpu_next();
+        cpu_execute(ins);
+    }
 }
 
-execute :: (ins: u32) {
+cpu_execute :: (ins: u32) {
     cpu.remaining_cycles -= 1;
     cpu.cp0[Cp0.COUNT] += 1;
     cpu_instr_lut[ins >> 26](ins);

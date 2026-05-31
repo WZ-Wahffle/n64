@@ -9,6 +9,23 @@ WINDOW_HEIGHT :: 960;
 #run assert(cast(float,WINDOW_WIDTH) / WINDOW_HEIGHT == cast(float,SCREEN_WIDTH) / SCREEN_HEIGHT, "Resolution must be 4:3!");
 #run assert(WINDOW_WIDTH % SCREEN_WIDTH == 0 && WINDOW_HEIGHT % SCREEN_HEIGHT == 0, "Resolution must be multiple of 640x480!");
 
+step :: (cycles: float) {
+    if rsp.cp0[Sp.STATUS] & xx Sp_Status_R.HALT != 0 {
+        cpu.remaining_cycles += cycles;
+        while cpu.remaining_cycles > 0 && cpu.state != .STOPPED cpu_execute_next();
+    } else {
+        cpu.remaining_cycles += cycles;
+        rsp.remaining_cycles += (cycles * 2) / 3;
+        while (cpu.remaining_cycles > 0 || rsp.remaining_cycles > 0) && cpu.state != .STOPPED {
+            cpu_execute_next();
+            cpu_execute_next();
+            rsp_execute_next();
+            cpu_execute_next();
+            rsp_execute_next();
+        }
+    }
+}
+
 ui :: () {
     rl.SetTraceLogLevel(.LOG_ERROR);
     rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "n64");
@@ -17,6 +34,11 @@ ui :: () {
     im.GetIO().Fonts.AddFontFromMemoryTTF(im.GetIO().Fonts, font.data, xx font.count, 24);
     rg.backend_setup();
     setup_catppuccin_mocha_theme();
+
+    cpu_disasm_state.pc_addr = *cpu.pc;
+    rsp_disasm_state.pc_addr = *rsp.pc;
+    cpu_disasm_state.bp_addr = *cpu.bp;
+    rsp_disasm_state.bp_addr = *rsp.bp;
 
     while(!rl.WindowShouldClose()) {
         rl.ClearBackground(rl.BLACK);
@@ -29,14 +51,13 @@ ui :: () {
             case .STOPPED;
                 // this page intentionally left blank
             case .STARTED;
-                execute_next();
+                step(-cpu.remaining_cycles + 1);
                 cpu.state = .RUNNING;
                 #through;
             case .RUNNING;
                 half_scanline_count := mem.vi._32[Vi.V_SYNC] & 0x3ff;
                 if half_scanline_count == 0 {
-                    cpu.remaining_cycles += CPU_CYCLES_PER_FRAME;
-                    while cpu.remaining_cycles > 0 && cpu.state != .STOPPED execute_next();
+                    step(CPU_CYCLES_PER_FRAME);
                 } else {
                     cycles_per_half_scanline := CPU_CYCLES_PER_FRAME / half_scanline_count;
                     active_start := (mem.vi._32[Vi.V_START] >> 16) & 0x3ff;
@@ -56,8 +77,7 @@ ui :: () {
 
                         check_rcp_interrupts();
 
-                        cpu.remaining_cycles += cycles_per_half_scanline;
-                        while cpu.remaining_cycles > 0 && cpu.state != .STOPPED execute_next();
+                        step(xx cycles_per_half_scanline);
 
                         if cpu.state == .STOPPED {
                             mem.vi._32[Vi.CURRENT] = 0;
@@ -65,13 +85,15 @@ ui :: () {
                         }
                     }
                 }
-                if disasm_state.follow disasm_state.scroll_state = cpu.pc;
+                if cpu_disasm_state.follow cpu_disasm_state.scroll_state = cpu.pc;
+                if rsp_disasm_state.follow rsp_disasm_state.scroll_state = rsp.pc | (0x84001000);
         }
 
         rg.backend_frame_begin();
 
         cpu_window();
-        disasm_window();
+        disasm_window(*cpu_disasm_state);
+        disasm_window(*rsp_disasm_state);
         memory_window();
 
         rg.backend_frame_end();
@@ -101,10 +123,11 @@ cpu_window :: () {
     }
     im.SameLine();
     if im.Button("Step") {
+        cpu.state = .RUNNING;
+        step(-cpu.remaining_cycles + 1);
         cpu.state = .STOPPED;
-        execute_next();
-        if disasm_state.follow {
-            disasm_state.scroll_state = cpu.pc;
+        if cpu_disasm_state.follow {
+            cpu_disasm_state.scroll_state = cpu.pc;
         }
     }
     im.SeparatorText("Registers");
@@ -177,7 +200,7 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             "$k0", "$k1",
             "$gp", "$sp", "$fp", "$ra"
         ];
-        return ifx disasm_state.pretty_regs then labels[reg] else tprint("$r%", reg);
+        return ifx cpu_disasm_state.pretty_regs then labels[reg] else tprint("$r%", reg);
     }
 
     op := val >> 26;
@@ -377,49 +400,55 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
     }
 }
 
-disasm_state : struct {
-    scroll_state := 0xbfc00000;
+Disasm_State :: struct {
+    name: string;
+    scroll_state: int;
     disasm_jump_buffer: [9]u8;
+    pc_addr: *u32;
+    bp_addr: *[32]u32;
 
     physical_addr := false;
     follow := true;
     pretty_regs := true;
 };
 
-disasm_window :: () {
-    im.Begin("disasm", null, .NoScrollbar | .NoScrollWithMouse);
+cpu_disasm_state := Disasm_State.{name="cpudisasm", scroll_state=0xbfc00000};
+rsp_disasm_state := Disasm_State.{name="rspdisasm", scroll_state=0x84001000};
+
+disasm_window :: (state: *Disasm_State) {
+    im.Begin(state.name.data, null, .NoScrollbar | .NoScrollWithMouse);
     if im.CollapsingHeader("Options", .OpenOnArrow) {
-        im.Checkbox("Physical addresses", *disasm_state.physical_addr);
-        im.Checkbox("Follow PC", *disasm_state.follow);
-        im.Checkbox("Register Names", *disasm_state.pretty_regs);
+        im.Checkbox("Physical addresses", *state.physical_addr);
+        im.Checkbox("Follow PC", *state.follow);
+        im.Checkbox("Register Names", *state.pretty_regs);
     }
     im.Text("0x");
     im.SameLine();
-    im.InputText("##disasm_jump_buffer", disasm_state.disasm_jump_buffer.data, 9);
+    im.InputText(tprint("##%_jump_buffer\0", state.name).data, state.disasm_jump_buffer.data, 9);
     im.SameLine();
     if im.Button("Jump to...") {
-        str := string.{8, disasm_state.disasm_jump_buffer.data};
+        str := string.{8, state.disasm_jump_buffer.data};
         parsed := string_to_int(str, 16);
-        disasm_state.scroll_state = parsed;
+        state.scroll_state = parsed;
     }
     im.Separator();
-    im.BeginChild("disasm_view", flags=.NoScrollbar | .NoScrollWithMouse);
+    im.BeginChild(tprint("%_view\0", state.name).data, flags=.NoScrollbar | .NoScrollWithMouse);
     if im.IsWindowHovered() {
         if (im.GetIO().MouseWheel < 0) {
-            disasm_state.scroll_state += 4;
+            state.scroll_state += 4;
         } else if (im.GetIO().MouseWheel > 0) {
-            disasm_state.scroll_state -= 4;
-            disasm_state.scroll_state = max(disasm_state.scroll_state, 0);
+            state.scroll_state -= 4;
+            state.scroll_state = max(state.scroll_state, 0);
         }
     }
     line_count : int = xx ((im.GetWindowContentRegionMax().y - im.GetCursorPosY()) / im.GetTextLineHeightWithSpacing());
     view : [100] struct {virt_addr: u32; ins: u32; text: string; info: Disasm_Return; is_branch_delay: bool;};
 
     for 0..line_count {
-        if disasm_state.scroll_state + (it - line_count / 2) * 4 < 0 {
+        if state.scroll_state + (it - line_count / 2) * 4 < 0 {
             view[it] = .{0, 0, "", {}, false};
         } else {
-            addr : u32 = xx (disasm_state.scroll_state + (it - line_count / 2) * 4);
+            addr : u32 = xx (state.scroll_state + (it - line_count / 2) * 4);
             mnem, info, ins := disasm(addr);
             is_branch_delay := info.type == .BRANCH;
             view[it] = .{addr, ins, mnem, info, is_branch_delay};
@@ -431,8 +460,8 @@ disasm_window :: () {
         green := im.ImVec4.{0., 1., 0., 1.};
         red := im.ImVec4.{1., 0., 0., 1.};
 
-        disp_addr := ifx disasm_state.physical_addr then virt2phys(view[line].virt_addr) else view[line].virt_addr;
-        if view[line].virt_addr == cpu.pc im.TextColored_CFormat(*green, "  0x%08x: %s", disp_addr, view[line].text.data);
+        disp_addr := ifx state.physical_addr then virt2phys(view[line].virt_addr) else view[line].virt_addr;
+        if view[line].virt_addr == state.pc_addr.* im.TextColored_CFormat(*green, "  0x%08x: %s", disp_addr, view[line].text.data);
         else if view[line].info.type == .BREAK im.TextColored_CFormat(*red, "  0x%08x: %s", disp_addr, view[line].text.data);
         else im.Text_CFormat("  0x%08x: %s", disp_addr, view[line].text.data);
 
@@ -466,19 +495,19 @@ disasm_window :: () {
         if im.IsItemClicked() {
             if im.IsKeyDown(.LeftCtrl) {
                 if view[line].info.type == .BRANCH {
-                    disasm_state.scroll_state = xx view[line].virt_addr + cast,no_check(u32,view[line].info.off);
+                    state.scroll_state = xx view[line].virt_addr + cast,no_check(u32,view[line].info.off);
                 }
             } else {
                 if view[line].info.type == .BREAK {
-                    write_4_v(view[line].virt_addr, cpu.bp[view[line].info.bp_idx], true);
-                    cpu.bp[view[line].info.bp_idx] = 0xffffffff;
+                    write_4_v(view[line].virt_addr, state.bp_addr.*[view[line].info.bp_idx], true);
+                    state.bp_addr.*[view[line].info.bp_idx] = 0xffffffff;
                 } else {
                     idx := 0;
-                    for cpu.bp if it == 0xffffffff {
+                    for state.bp_addr.* if it == 0xffffffff {
                         idx = it_index;
                         break;
                     }
-                    cpu.bp[idx] = view[line].ins;
+                    state.bp_addr.*[idx] = view[line].ins;
                     write_4_v(view[line].virt_addr, xx 0xd | ((idx + 1) << 6), true);
                 }
             }

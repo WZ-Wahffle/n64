@@ -241,7 +241,6 @@ read_4 :: (addr: u32) -> u32 {
                 assert(false, "Read Reserved at 0x%", formatInt(addr, 16));
             }
             if addr < 0x04040020 {
-                print("%\n", formatInt(addr));
                 return rsp.cp0[(addr & 0x1f) >> 2];
             }
             if addr == 0x04080000 {
@@ -418,7 +417,7 @@ write_4 :: (addr: u32, val: u32, override := false) {
                 }
             }
             else if addr == 0x04080000 {
-                rsp.pc = val;
+                rsp.pc = val & 0xfff;
             }
             else assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
         }

@@ -64,3 +64,4 @@ main :: () {
 #load "rsp.jai";
 #load "memory.jai";
 #load "cpu-instrs.jai";
+#load "rsp-instrs.jai";

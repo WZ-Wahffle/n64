@@ -379,21 +379,21 @@ cpu_bgezal :: (ins: u32) {
 
 cpu_j :: (ins: u32) {
     addr := decode_j(ins);
-    execute_next();
+    cpu_execute_next();
     cpu.pc &= 0xf0000000;
     cpu.pc |= addr << 2;
 }
 
 cpu_jr :: (ins: u32) {
     rs := decode_i(ins);
-    execute_next();
+    cpu_execute_next();
     cpu.pc = xx (cpu_reg_src(rs) & 0xffffffff);
 }
 
 cpu_jal :: (ins: u32) {
     addr := decode_j(ins);
     cpu.gpr[31] = cpu.pc + 4; // TODO: verify
-    execute_next();
+    cpu_execute_next();
     cpu.pc &= 0xf0000000;
     cpu.pc |= addr << 2;
 }
@@ -401,7 +401,7 @@ cpu_jal :: (ins: u32) {
 cpu_jalr :: (ins: u32) {
     rs := decode_i(ins);
     cpu.gpr[31] = cpu.pc + 4; // TODO: verify
-    execute_next();
+    cpu_execute_next();
     cpu.pc = xx (cpu_reg_src(rs) & 0xffffffff);
 }
 
@@ -546,7 +546,7 @@ cpu_break :: (ins: u32) {
         cpu.pc -= 4;
     } else {
         idx := ((ins >> 6) & 0xfffff) - 1;
-        execute(cpu.bp[idx]);
+        cpu_execute(cpu.bp[idx]);
     }
 }
 
@@ -565,7 +565,7 @@ decode_r :: inline (ins: u32) -> (rs: u32, rt: u32, rd: u32, sa: u32) {
 #scope_file
 
 cpu_branch :: inline (addr: u32, cond: bool) {
-    execute_next();
+    cpu_execute_next();
     if cond {
         cpu.pc = addr;
     }
@@ -573,7 +573,7 @@ cpu_branch :: inline (addr: u32, cond: bool) {
 
 cpu_branch_likely :: inline (addr: u32, cond: bool) {
     if cond {
-        execute_next();
+        cpu_execute_next();
         cpu.pc = addr;
     } else {
         cpu.pc += 4;
