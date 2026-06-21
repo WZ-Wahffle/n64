@@ -19,6 +19,7 @@ Memory :: struct {
     ai : Mem(0x18);
     rdp_cmd : Mem(0x20);
     rom : Mem(0xfc00000);
+    eeprom : Mem(0x800);
 }
 
 Sp :: enum {
@@ -30,6 +31,14 @@ Sp :: enum {
     DMA_FULL;
     DMA_BUSY;
     SEMAPHORE;
+    CMD_START;
+    CMD_END;
+    CMD_CURRENT;
+    CMD_STATUS;
+    CMD_CLOCK;
+    CMD_BUSY;
+    CMD_PIPE_BUSY;
+    CMD_TMEM_BUSY;
 }
 
 Sp_Status_W :: enum {
@@ -180,6 +189,27 @@ Vi :: enum {
     Y_SCALE;
 }
 
+Si :: enum {
+    DRAM_ADDR :: 0;
+    DMA_READ :: 1;
+    DMA_WRITE :: 4;
+    STATUS :: 6;
+}
+
+Si_Status :: enum {
+    DMA_BUSY :: 0x1;
+    RD_BUSY :: 0x2;
+    DMA_ERROR :: 0x8;
+    INTERRUPT :: 0x1000;
+}
+
+lswap :: inline (val: u64) -> u64 {
+    #asm {
+        bswap.64 val;
+    }
+    return val;
+}
+
 wswap :: inline (val: u32) -> u32 {
     #asm {
         bswap.32 val;
@@ -227,7 +257,9 @@ read_4 :: (addr: u32) -> u32 {
         assert(false, "Read Reserved at 0x%", formatInt(addr, 16));
     }
     if addr < 0x04000000 {
-        assert(false, "TODO: Read RDRAM Registers at 0x%", formatInt(addr, 16));
+        print("Read RDRAM at %\n", formatInt(addr, 16));
+        return 0; // surely nothing could go wrong here
+        // assert(false, "TODO: Read RDRAM Registers at 0x%", formatInt(addr, 16));
     }
     if addr < 0x05000000 {
         if addr < 0x04100000 {
@@ -240,8 +272,14 @@ read_4 :: (addr: u32) -> u32 {
             if addr < 0x04040000 {
                 assert(false, "Read Reserved at 0x%", formatInt(addr, 16));
             }
-            if addr < 0x04040020 {
-                return rsp.cp0[(addr & 0x1f) >> 2];
+            if addr < 0x04040040 {
+                off := (addr - 0x04040000) >> 2;
+                ret := rsp.cp0[off];
+                if off == xx Sp.SEMAPHORE {
+                    // semaphore is set on read if cleared or already set
+                    rsp.cp0[Sp.SEMAPHORE] = 1;
+                }
+                return ret;
             }
             if addr == 0x04080000 {
                 return rsp.pc;
@@ -354,8 +392,8 @@ write_4 :: (addr: u32, val: u32, override := false) {
             else if addr < 0x04040000 {
                 assert(false, "Write Reserved 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
             }
-            else if addr < 0x04040020 {
-                off := (addr & 0x1f) >> 2;
+            else if addr < 0x04040040 {
+                off := (addr - 0x04040000) >> 2;
                 if off == xx Sp.STATUS {
                     if val & xx Sp_Status_W.CLR_HALT != 0 then rsp.cp0[Sp.STATUS] &= xx ~Sp_Status_R.HALT;
                     if val & xx Sp_Status_W.SET_HALT != 0 then rsp.cp0[Sp.STATUS] |= xx Sp_Status_R.HALT;
@@ -382,6 +420,8 @@ write_4 :: (addr: u32, val: u32, override := false) {
                     if val & xx Sp_Status_W.SET_SIG6 != 0 then rsp.cp0[Sp.STATUS] |= xx Sp_Status_R.SIG6;
                     if val & xx Sp_Status_W.CLR_SIG7 != 0 then rsp.cp0[Sp.STATUS] &= xx ~Sp_Status_R.SIG7;
                     if val & xx Sp_Status_W.SET_SIG7 != 0 then rsp.cp0[Sp.STATUS] |= xx Sp_Status_R.SIG7;
+                } else if off == xx Sp.SEMAPHORE {
+                    if val == 0 rsp.cp0[Sp.SEMAPHORE] = 0;
                 } else {
                     rsp.cp0[off] = val;
                     if off == xx Sp.RD_LEN {
@@ -505,8 +545,75 @@ write_4 :: (addr: u32, val: u32, override := false) {
             off := (addr - 0x04800000) >> 2;
             mem.si._32[off] = val;
 
-            if off == 1 assert(false, "TODO: SI DMA Write 0x% bytes", formatInt(val, 16, 8));
-            if off == 4 assert(false, "TODO: SI DMA Read 0x% bytes", formatInt(val, 16, 8));
+            if off == xx Si.DMA_READ {
+                dst := mem.si._32[Si.DRAM_ADDR];
+                for 0..15 {
+                    write_4(dst, mem.boot_ram._32[it]);
+                    dst += 4;
+                }
+                mem.si._32[Si.STATUS] |= xx Si_Status.INTERRUPT;
+                mem.mi._32[Mi.INTR] |= xx Mi_Intr_R.SI;
+                check_rcp_interrupts();
+            }
+            if off == xx Si.DMA_WRITE {
+                src := mem.si._32[Si.DRAM_ADDR];
+                for 0..15 {
+                    mem.boot_ram._32[it] = read_4(src);
+                    src += 4;
+                }
+
+                if mem.boot_ram._32[0] == 0xff0103ff && mem.boot_ram._32[1] == 0xffffffff {
+                    // controller reset / init?
+                    mem.boot_ram._32[0] = 0; // no errors
+                    mem.boot_ram._16[2] = 5; // normal controller
+                    mem.boot_ram._16[3] = 0; // no status
+                } else if mem.boot_ram._32[0] == 0xff010401 && mem.boot_ram._32[1] == 0xffffffff {
+                    // controller get buttons
+                    mem.boot_ram._32[0] = 0; // no errors
+                    keymap := cast(u16,rl.IsGamepadButtonDown(0, rl.GamepadButton.GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) |
+                    (cast(u16,rl.IsGamepadButtonDown(0, rl.GamepadButton.GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) << 1) |
+                    (cast(u16,rl.GetGamepadAxisMovement(0, rl.GamepadAxis.GAMEPAD_AXIS_LEFT_TRIGGER) > 0.5) << 2) |
+                    (cast(u16,rl.IsGamepadButtonDown(0, rl.GamepadButton.GAMEPAD_BUTTON_MIDDLE_RIGHT)) << 3) |
+                    (cast(u16,rl.IsGamepadButtonDown(0, rl.GamepadButton.GAMEPAD_BUTTON_LEFT_FACE_UP)) << 4) |
+                    (cast(u16,rl.IsGamepadButtonDown(0, rl.GamepadButton.GAMEPAD_BUTTON_LEFT_FACE_DOWN)) << 5) |
+                    (cast(u16,rl.IsGamepadButtonDown(0, rl.GamepadButton.GAMEPAD_BUTTON_LEFT_FACE_LEFT)) << 6) |
+                    (cast(u16,rl.IsGamepadButtonDown(0, rl.GamepadButton.GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) << 7) |
+                    (cast(u16,rl.IsGamepadButtonDown(0, rl.GamepadButton.GAMEPAD_BUTTON_LEFT_TRIGGER_1)) << 10) |
+                    (cast(u16,rl.IsGamepadButtonDown(0, rl.GamepadButton.GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) << 11) |
+                    (cast(u16,(rl.GetGamepadAxisMovement(0, rl.GamepadAxis.GAMEPAD_AXIS_RIGHT_Y) < -0.5)) << 12) |
+                    (cast(u16,(rl.GetGamepadAxisMovement(0, rl.GamepadAxis.GAMEPAD_AXIS_RIGHT_Y) > 0.5)) << 13) |
+                    (cast(u16,(rl.GetGamepadAxisMovement(0, rl.GamepadAxis.GAMEPAD_AXIS_RIGHT_X) < -0.5)) << 14) |
+                    (cast(u16,(rl.GetGamepadAxisMovement(0, rl.GamepadAxis.GAMEPAD_AXIS_RIGHT_X) > 0.5)) << 15);
+                    mem.boot_ram._16[2] = keymap;
+                    mem.boot_ram._8[6] = xx ((rl.GetGamepadAxisMovement(0, rl.GamepadAxis.GAMEPAD_AXIS_LEFT_X) + 1.0) * 128);
+                    mem.boot_ram._8[7] = xx ((rl.GetGamepadAxisMovement(0, rl.GamepadAxis.GAMEPAD_AXIS_LEFT_Y) + 1.0) * 128);
+                } else if mem.boot_ram._32[0] == 0x0 && mem.boot_ram._32[1] == 0xff010300 {
+                    // eeprom status
+                    mem.boot_ram._32[1] = 0; // no errors
+                    mem.boot_ram._32[2] = 0x00800000; // 4k eeprom
+                    mem.boot_ram._32[3] = 0; // no status
+                } else if mem.boot_ram._32[0] == 0x0 && mem.boot_ram._32[1] & 0xffffff00 == 0x02080400 {
+                    // eeprom read
+                    addr := mem.boot_ram._32[1] & 0xff;
+                    mem.boot_ram._32[1] = 0; // no errors
+                    mem.boot_ram._32[2] = mem.eeprom._32[addr << 1];
+                    mem.boot_ram._32[3] = mem.eeprom._32[(addr << 1) + 1];
+                } else if mem.boot_ram._32[0] == 0x0 && mem.boot_ram._32[1] & 0xffffff00 == 0x0a010500 {
+                    // eeprom write
+                    addr := mem.boot_ram._32[1] & 0xff;
+                    mem.eeprom._32[addr << 1] = mem.boot_ram._32[2];
+                    mem.eeprom._32[(addr << 1) + 1] = mem.boot_ram._32[3];
+                } else {
+                    assert(false, "Unhandled CIC bus command %\n", mem.boot_ram._32);
+                }
+
+                mem.si._32[Si.STATUS] |= xx Si_Status.INTERRUPT;
+                mem.mi._32[Mi.INTR] |= xx Mi_Intr_R.SI;
+                check_rcp_interrupts();
+            }
+            if off == xx Si.STATUS {
+                mem.si._32[Si.STATUS] &= xx ~Si_Status.INTERRUPT;
+            }
         }
         else assert(false, "TODO: Write RCP Registers 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));
     }

@@ -41,6 +41,11 @@ cpu_xori :: (ins: u32) {
     cpu_reg_dst(rt, cpu_reg_src(rs) ^ imm);
 }
 
+cpu_nor :: (ins: u32) {
+    rs, rt, rd := decode_r(ins);
+    cpu_reg_dst(rt, ~(cpu_reg_src(rs) | cpu_reg_src(rt)));
+}
+
 cpu_sll :: (ins: u32) {
     _, rt, rd, sa := decode_r(ins);
     cpu_reg_dst(rd, sign_extend_4((cpu_reg_src(rt) << sa) & 0xffffffff));
@@ -231,6 +236,30 @@ cpu_lw :: (ins: u32) {
     cpu_reg_dst(rt, sign_extend_4(read_4_v(addr)));
 }
 
+cpu_lwl :: (ins: u32) {
+    base, rt, imm := decode_i(ins);
+    addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
+    off := addr & 3;
+    mem := read_4_v(addr);
+    to_merge : u32 = xx (cpu_reg_src(rt) & 0xffffffff);
+
+    to_merge &= ~cast(u32, 0xffffffff << (off * 8));
+    to_merge |= mem << (off * 8);
+    cpu_reg_dst(rt, sign_extend_4(to_merge));
+}
+
+cpu_lwr :: (ins: u32) {
+    base, rt, imm := decode_i(ins);
+    addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
+    off := addr & 3;
+    mem := read_4_v(addr);
+    to_merge : u32 = xx (cpu_reg_src(rt) & 0xffffffff);
+
+    to_merge &= ~cast(u32, 0xffffffff >> ((3 - off) * 8));
+    to_merge |= mem >> ((3 - off) * 8);
+    cpu_reg_dst(rt, sign_extend_4(to_merge));
+}
+
 cpu_ld :: (ins: u32) {
     base, rt, imm := decode_i(ins);
     addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
@@ -256,6 +285,30 @@ cpu_sw :: (ins: u32) {
     base, rt, imm := decode_i(ins);
     addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
     write_4_v(addr, xx (cpu_reg_src(rt) & 0xffffffff));
+}
+
+cpu_swl :: (ins: u32) {
+    base, rt, imm := decode_i(ins);
+    addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
+    off := addr & 3;
+    to_merge := read_4_v(addr);
+    reg : u32 = xx (cpu_reg_src(rt) & 0xffffffff);
+
+    to_merge &= ~cast(u32, 0xffffffff >> (off * 8));
+    to_merge |= reg >> (off * 8);
+    write_4_v(addr, to_merge);
+}
+
+cpu_swr :: (ins: u32) {
+    base, rt, imm := decode_i(ins);
+    addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
+    off := addr & 3;
+    to_merge := read_4_v(addr);
+    reg : u32 = xx (cpu_reg_src(rt) & 0xffffffff);
+
+    to_merge &= ~cast(u32, 0xffffffff << ((3 - off) * 8));
+    to_merge |= reg << ((3 - off) * 8);
+    write_4_v(addr, to_merge);
 }
 
 cpu_sd :: (ins: u32) {
@@ -350,7 +403,7 @@ cpu_beql :: (ins: u32) {
     if imm & 0x8000 != 0 then imm |= 0xffff0000;
     addr := cpu.pc + (imm << 2);
 
-    cpu_branch(addr, cpu_reg_src(rt) == cpu_reg_src(rs));
+    cpu_branch_likely(addr, cpu_reg_src(rt) == cpu_reg_src(rs));
 }
 
 cpu_bnel :: (ins: u32) {
@@ -361,12 +414,28 @@ cpu_bnel :: (ins: u32) {
     cpu_branch_likely(addr, cpu_reg_src(rt) != cpu_reg_src(rs));
 }
 
+cpu_bltzl :: (ins: u32) {
+    rs, _, imm := decode_i(ins);
+    if imm & 0x8000 != 0 then imm |= 0xffff0000;
+    addr := cpu.pc + (imm << 2);
+
+    cpu_branch_likely(addr, cpu_reg_src(rs) & 0x80000000 != 0);
+}
+
 cpu_blezl :: (ins: u32) {
     rs, _, imm := decode_i(ins);
     if imm & 0x8000 != 0 then imm |= 0xffff0000;
     addr := cpu.pc + (imm << 2);
 
     cpu_branch_likely(addr, cpu_reg_src(rs) & 0x80000000 != 0 || cpu_reg_src(rs) == 0);
+}
+
+cpu_bgezl :: (ins: u32) {
+    rs, _, imm := decode_i(ins);
+    if imm & 0x8000 != 0 then imm |= 0xffff0000;
+    addr := cpu.pc + (imm << 2);
+
+    cpu_branch_likely(addr, cpu_reg_src(rs) & 0x80000000 == 0);
 }
 
 cpu_bgezal :: (ins: u32) {
@@ -379,21 +448,22 @@ cpu_bgezal :: (ins: u32) {
 
 cpu_j :: (ins: u32) {
     addr := decode_j(ins);
-    cpu_execute_next();
+    cpu_execute_next(true);
     cpu.pc &= 0xf0000000;
     cpu.pc |= addr << 2;
 }
 
 cpu_jr :: (ins: u32) {
     rs := decode_i(ins);
-    cpu_execute_next();
-    cpu.pc = xx (cpu_reg_src(rs) & 0xffffffff);
+    addr : u32 = xx (cpu_reg_src(rs) & 0xffffffff);
+    cpu_execute_next(true);
+    cpu.pc = addr;
 }
 
 cpu_jal :: (ins: u32) {
     addr := decode_j(ins);
     cpu.gpr[31] = cpu.pc + 4; // TODO: verify
-    cpu_execute_next();
+    cpu_execute_next(true);
     cpu.pc &= 0xf0000000;
     cpu.pc |= addr << 2;
 }
@@ -401,7 +471,7 @@ cpu_jal :: (ins: u32) {
 cpu_jalr :: (ins: u32) {
     rs := decode_i(ins);
     cpu.gpr[31] = cpu.pc + 4; // TODO: verify
-    cpu_execute_next();
+    cpu_execute_next(true);
     cpu.pc = xx (cpu_reg_src(rs) & 0xffffffff);
 }
 
@@ -470,11 +540,50 @@ cpu_cop1 :: (ins: u32) {
                 cpu.fgr[fs].i64 = cpu_reg_src(ft) & 0xffffffff;
             case 6;
                 cpu.fcr[fs] = xx cpu_reg_src(ft);
+            case 8;
+                imm := ins & 0xffff;
+                if imm & 0x8000 != 0 then imm |= 0xffff0000;
+                addr := cpu.pc + (imm << 2);
+                if ft == 0 {
+                    cpu_branch(addr, !cpu.coc);
+                } else {
+                    cpu_branch(addr, cpu.coc);
+                }
             case;
                 assert(false, "TODO %", fmt);
         }
     } else {
-        if funct == {
+        if funct > 47 {
+            cond := funct & 0xf;
+            less : bool;
+            equal : bool;
+            unordered : bool;
+            if fmt == {
+                case 16;
+                    if isnan(cpu.fgr[fs].f32) || isnan(cpu.fgr[fs].f32) {
+                        less = false;
+                        equal = false;
+                        unordered = true;
+                    } else {
+                        less = cpu.fgr[fs].f32 < cpu.fgr[ft].f32;
+                        equal = cpu.fgr[fs].f32 == cpu.fgr[ft].f32;
+                        unordered = false;
+                    }
+                case 17;
+                    if isnan(cpu.fgr[fs].f64) || isnan(cpu.fgr[fs].f64) {
+                        less = false;
+                        equal = false;
+                        unordered = true;
+                    } else {
+                        less = cpu.fgr[fs].f64 < cpu.fgr[ft].f64;
+                        equal = cpu.fgr[fs].f64 == cpu.fgr[ft].f64;
+                        unordered = false;
+                    }
+                case;
+                    assert(false, "Invalid format %", fmt);
+            }
+            cpu.coc = (cond & 0b100 != 0 && less) || (cond & 0b10 != 0 && equal) || (cond & 0b1 != 0 && unordered);
+        } else if funct == {
             case 0;
                 if fmt == {
                     case 16;
@@ -499,6 +608,15 @@ cpu_cop1 :: (ins: u32) {
                         cpu.fgr[fd].f32 = cpu.fgr[fs].f32 / cpu.fgr[ft].f32;
                     case 17;
                         cpu.fgr[fd].f64 = cpu.fgr[fs].f64 / cpu.fgr[ft].f64;
+                    case;
+                        assert(false, "Invalid format %", fmt);
+                }
+            case 4;
+                if fmt == {
+                    case 16;
+                        cpu.fgr[fd].f32 = sqrt(cpu.fgr[fs].f32);
+                    case 17;
+                        cpu.fgr[fd].f64 = sqrt(cpu.fgr[fs].f64);
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
@@ -544,6 +662,8 @@ cpu_break :: (ins: u32) {
     if cpu.state == .RUNNING {
         cpu.state = .STOPPED;
         cpu.pc -= 4;
+        cpu.remaining_cycles = 0;
+        rsp.remaining_cycles = 0;
     } else {
         idx := ((ins >> 6) & 0xfffff) - 1;
         cpu_execute(cpu.bp[idx]);
@@ -565,7 +685,7 @@ decode_r :: inline (ins: u32) -> (rs: u32, rt: u32, rd: u32, sa: u32) {
 #scope_file
 
 cpu_branch :: inline (addr: u32, cond: bool) {
-    cpu_execute_next();
+    cpu_execute_next(true);
     if cond {
         cpu.pc = addr;
     }
@@ -573,7 +693,7 @@ cpu_branch :: inline (addr: u32, cond: bool) {
 
 cpu_branch_likely :: inline (addr: u32, cond: bool) {
     if cond {
-        cpu_execute_next();
+        cpu_execute_next(true);
         cpu.pc = addr;
     } else {
         cpu.pc += 4;

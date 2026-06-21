@@ -9,6 +9,7 @@ Cpu :: struct {
         f64: float64;
     };
     fcr: [32]u32;
+    coc: bool;
     pc: u32 = 0xbfc00000;
     hi: u64;
     lo: u64;
@@ -59,6 +60,14 @@ Cp0 :: enum {
     _31;
 }
 
+Cpu_Cause :: enum {
+    SW1 :: 0x100;
+    SW2 :: 0x200;
+    RCP :: 0x400;
+    CART :: 0x800;
+    COUNTER :: 0x8000;
+}
+
 cpu_instr_lut := (_:u32).[
     cpu_special,
     cpu_regimm,
@@ -94,19 +103,19 @@ cpu_instr_lut := (_:u32).[
     null,
     cpu_lb,
     cpu_lh,
-    null,
+    cpu_lwl,
     cpu_lw,
     cpu_lbu,
     cpu_lhu,
-    null,
+    cpu_lwr,
     null,
     cpu_sb,
     cpu_sh,
-    null,
+    cpu_swl,
     cpu_sw,
     null,
     null,
-    null,
+    cpu_swr,
     cpu_cache,
     null,
     cpu_lwc1,
@@ -166,7 +175,7 @@ cpu_special_lut := (_:u32).[
     cpu_and,
     cpu_or,
     cpu_xor,
-    null,
+    cpu_nor,
     null,
     null,
     cpu_slt,
@@ -196,8 +205,8 @@ cpu_special_lut := (_:u32).[
 cpu_regimm_lut := (_:u32).[
     cpu_bltz,
     cpu_bgez,
-    null,
-    null,
+    cpu_bltzl,
+    cpu_bgezl,
     null,
     null,
     null,
@@ -280,8 +289,8 @@ cpu_reg_dst :: inline (idx: u32, val: u64) {
     if idx > 0 cpu.gpr[idx] = val;
 }
 
-cpu_execute_next :: () {
-    if cpu.remaining_cycles > 0 {
+cpu_execute_next :: (cycle_bypass := false) {
+    if cpu.remaining_cycles > 0 || cycle_bypass {
         ins := cpu_next();
         cpu_execute(ins);
     }
@@ -291,6 +300,9 @@ cpu_execute :: (ins: u32) {
     cpu.remaining_cycles -= 1;
     cpu.cp0[Cp0.COUNT] += 1;
     cpu_instr_lut[ins >> 26](ins);
+    if cpu.cp0[Cp0.COUNT] == cpu.cp0[Cp0.COMPARE] {
+        cpu.cp0[Cp0.CAUSE] |= xx Cpu_Cause.COUNTER;
+    }
 }
 
 cpu_reset :: () {
@@ -300,9 +312,9 @@ cpu_reset :: () {
 
 check_rcp_interrupts :: () {
     if mem.mi._32[Mi.INTR_MASK] & mem.mi._32[Mi.INTR] != 0 {
-        cpu.cp0[Cp0.CAUSE] |= 0x400;
+        cpu.cp0[Cp0.CAUSE] |= xx Cpu_Cause.RCP;
     } else {
-        cpu.cp0[Cp0.CAUSE] &= ~cast(u32,0x400);
+        cpu.cp0[Cp0.CAUSE] &= xx ~Cpu_Cause.RCP;
     }
 
     check_interrupts();

@@ -35,8 +35,6 @@ ui :: () {
     rg.backend_setup();
     setup_catppuccin_mocha_theme();
 
-    cpu_disasm_state.pc_addr = *cpu.pc;
-    rsp_disasm_state.pc_addr = *rsp.pc;
     cpu_disasm_state.bp_addr = *cpu.bp;
     rsp_disasm_state.bp_addr = *rsp.bp;
 
@@ -86,7 +84,7 @@ ui :: () {
                     }
                 }
                 if cpu_disasm_state.follow cpu_disasm_state.scroll_state = cpu.pc;
-                if rsp_disasm_state.follow rsp_disasm_state.scroll_state = rsp.pc | (0x84001000);
+                if rsp_disasm_state.follow rsp_disasm_state.scroll_state = rsp.pc | 0x84001000;
         }
 
         rg.backend_frame_begin();
@@ -126,9 +124,8 @@ cpu_window :: () {
         cpu.state = .RUNNING;
         step(-cpu.remaining_cycles + 1);
         cpu.state = .STOPPED;
-        if cpu_disasm_state.follow {
-            cpu_disasm_state.scroll_state = cpu.pc;
-        }
+        if cpu_disasm_state.follow cpu_disasm_state.scroll_state = cpu.pc;
+        if rsp_disasm_state.follow rsp_disasm_state.scroll_state = rsp.pc | 0x84001000;
     }
     im.SeparatorText("Registers");
     im.Text_CFormat("PC: 0x%08x", cpu.pc);
@@ -169,9 +166,9 @@ cpu_window :: () {
     im.End();
 }
 
-disasm :: (addr: u32) -> str: string, info: Disasm_Return, ins: u32 {
+disasm :: (addr: u32, state: *Disasm_State) -> str: string, info: Disasm_Return, ins: u32 {
     ins := read_4_v(addr);
-    a, b := disasm_explicit(addr, ins);
+    a, b := disasm_explicit(addr, ins, state);
     return a, b, ins;
 }
 
@@ -188,7 +185,7 @@ Disasm_Return :: struct {
     bp_idx : u32 = 0;
 }
 
-disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = {.NORMAL, 0, false, 0}) {
+disasm_explicit :: (addr: u32, val: u32, state: *Disasm_State) -> (str: string, info: Disasm_Return = {.NORMAL, 0, false, 0}) {
     to_reg :: (reg: u32) -> string {
         labels :: string.[
             "$zero", "$at",
@@ -237,7 +234,7 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             if idx == 0 return "BREAK 0x0\0";
             if idx == 0x1800 return "BREAK 0x1800\0";
             if idx == 0x1c00 return "BREAK 0x1c00\0";
-            return disasm_explicit(addr, cpu.bp[idx-1]), .{type=.BREAK, bp_idx=idx-1};
+            return disasm_explicit(addr, state.bp_addr.*[idx-1], state), .{type=.BREAK, bp_idx=idx-1};
             case 16;
             return tprint("MFHI %\0", rd);
             case 17;
@@ -270,6 +267,8 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             return tprint("OR %, %, %\0", rd, rs, rt);
             case 38;
             return tprint("XOR %, %, %\0", rd, rs, rt);
+            case 39;
+            return tprint("NOR %, %, %\0", rd, rs, rt);
             case 42;
             return tprint("SLT %, %, %\0", rd, rs, rt);
             case 43;
@@ -291,6 +290,14 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
             if imm & 0x8000 != 0 imm |= 0xffff0000;
             imm <<= 2;
             return tprint("BGEZ %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
+            case 2;
+            if imm & 0x8000 != 0 imm |= 0xffff0000;
+            imm <<= 2;
+            return tprint("BLTZL %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
+            case 3;
+            if imm & 0x8000 != 0 imm |= 0xffff0000;
+            imm <<= 2;
+            return tprint("BGEZL %, %, 0x%\0", rs, rt, formatInt(addr + imm + 4, 16, 8)), .{type=.BRANCH, off=cast,no_check(s32,imm + 4), cond=true};
             case 17;
             if imm & 0x8000 != 0 imm |= 0xffff0000;
             imm <<= 2;
@@ -377,18 +384,26 @@ disasm_explicit :: (addr: u32, val: u32) -> (str: string, info: Disasm_Return = 
         return tprint("LB %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 33;
         return tprint("LH %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
+        case 34;
+        return tprint("LWL %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 35;
         return tprint("LW %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 36;
         return tprint("LBU %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 37;
         return tprint("LHU %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
+        case 38;
+        return tprint("LWR %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 40;
         return tprint("SB %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 41;
         return tprint("SH %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
+        case 42;
+        return tprint("SWL %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 43;
         return tprint("SW %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
+        case 46;
+        return tprint("SWR %, 0x%(%)\0", rt, formatInt(imm, 16), rs);
         case 47;
         return tprint("CACHE %, 0x%(%)\0", rt_idx, formatInt(imm, 16), rs);
         case 55;
@@ -404,7 +419,6 @@ Disasm_State :: struct {
     name: string;
     scroll_state: int;
     disasm_jump_buffer: [9]u8;
-    pc_addr: *u32;
     bp_addr: *[32]u32;
 
     physical_addr := false;
@@ -449,7 +463,7 @@ disasm_window :: (state: *Disasm_State) {
             view[it] = .{0, 0, "", {}, false};
         } else {
             addr : u32 = xx (state.scroll_state + (it - line_count / 2) * 4);
-            mnem, info, ins := disasm(addr);
+            mnem, info, ins := disasm(addr, state);
             is_branch_delay := info.type == .BRANCH;
             view[it] = .{addr, ins, mnem, info, is_branch_delay};
         }
@@ -459,9 +473,11 @@ disasm_window :: (state: *Disasm_State) {
     for line : 0..line_count {
         green := im.ImVec4.{0., 1., 0., 1.};
         red := im.ImVec4.{1., 0., 0., 1.};
+        blue := im.ImVec4.{0., 0., 1., 1.};
 
         disp_addr := ifx state.physical_addr then virt2phys(view[line].virt_addr) else view[line].virt_addr;
-        if view[line].virt_addr == state.pc_addr.* im.TextColored_CFormat(*green, "  0x%08x: %s", disp_addr, view[line].text.data);
+        if view[line].virt_addr == cpu.pc im.TextColored_CFormat(*green, "  0x%08x: %s", disp_addr, view[line].text.data);
+        else if virt2phys(view[line].virt_addr) == rsp.pc | 0x04001000 im.TextColored_CFormat(*blue, "  0x%08x: %s", disp_addr, view[line].text.data);
         else if view[line].info.type == .BREAK im.TextColored_CFormat(*red, "  0x%08x: %s", disp_addr, view[line].text.data);
         else im.Text_CFormat("  0x%08x: %s", disp_addr, view[line].text.data);
 
@@ -524,6 +540,7 @@ mem_state : struct {
         RAM;
         DMEM;
         IMEM;
+        RSP;
         RDP_CMD;
         RDP_SPAN;
         MI;
@@ -558,6 +575,7 @@ memory_window :: () {
         "RAM",
         "DMEM",
         "IMEM",
+        "RSP",
         "RDP command",
         "RDP span",
         "MI",
@@ -588,6 +606,8 @@ memory_window :: () {
             return mem.dmem._8.data, mem.dmem._8.count;
         case .IMEM;
             return mem.imem._8.data, mem.imem._8.count;
+        case .RSP;
+            return xx rsp.cp0.data, rsp.cp0.count * 4;
         case .RDP_CMD;
             return mem.rdp_cmd._8.data, mem.rdp_cmd._8.count;
         case .RDP_SPAN;
