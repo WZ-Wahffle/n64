@@ -87,17 +87,6 @@ Sp_Status_R :: enum {
     SIG7 :: 0x4000;
 }
 
-Dp_Cmd :: enum {
-    START;
-    END;
-    CURRENT;
-    STATUS;
-    CLOCK;
-    BUFBUSY;
-    PIPEBUSY;
-    TMEM;
-}
-
 Dp_Cmd_Status_W :: enum u32 {
     CLR_XBUS_DMEM_DMA :: 0x1;
     SET_XBUS_DMEM_DMA :: 0x2;
@@ -422,6 +411,17 @@ write_4 :: (addr: u32, val: u32, override := false) {
                     if val & xx Sp_Status_W.SET_SIG7 != 0 then rsp.cp0[Sp.STATUS] |= xx Sp_Status_R.SIG7;
                 } else if off == xx Sp.SEMAPHORE {
                     if val == 0 rsp.cp0[Sp.SEMAPHORE] = 0;
+                } else if off == xx Sp.CMD_STATUS {
+                    if val & xx Dp_Cmd_Status_W.CLR_XBUS_DMEM_DMA != 0 then rsp.cp0[Sp.CMD_STATUS] &= xx ~Dp_Cmd_Status_R.XBUS_DMEM_DMA;
+                    if val & xx Dp_Cmd_Status_W.SET_XBUS_DMEM_DMA != 0 then rsp.cp0[Sp.CMD_STATUS] |= xx Dp_Cmd_Status_R.XBUS_DMEM_DMA;
+                    if val & xx Dp_Cmd_Status_W.CLR_FREEZE != 0 then rsp.cp0[Sp.CMD_STATUS] &= xx ~Dp_Cmd_Status_R.FREEZE;
+                    if val & xx Dp_Cmd_Status_W.SET_FREEZE != 0 then rsp.cp0[Sp.CMD_STATUS] |= xx Dp_Cmd_Status_R.FREEZE;
+                    if val & xx Dp_Cmd_Status_W.CLR_FLUSH != 0 then rsp.cp0[Sp.CMD_STATUS] &= xx ~Dp_Cmd_Status_R.FLUSH;
+                    if val & xx Dp_Cmd_Status_W.SET_FLUSH != 0 then rsp.cp0[Sp.CMD_STATUS] |= xx Dp_Cmd_Status_R.FLUSH;
+                    if val & xx Dp_Cmd_Status_W.CLR_TMEM_CTR != 0 then rsp.cp0[Sp.CMD_TMEM_BUSY] = 0;
+                    if val & xx Dp_Cmd_Status_W.CLR_PIPE_CTR != 0 then rsp.cp0[Sp.CMD_PIPE_BUSY] = 0;
+                    if val & xx Dp_Cmd_Status_W.CLR_CMD_CTR != 0 then rsp.cp0[Sp.CMD_BUSY] = 0;
+                    if val & xx Dp_Cmd_Status_W.CLR_CLOCK_CTR != 0 then rsp.cp0[Sp.CMD_CLOCK] = 0;
                 } else {
                     rsp.cp0[off] = val;
                     if off == xx Sp.RD_LEN {
