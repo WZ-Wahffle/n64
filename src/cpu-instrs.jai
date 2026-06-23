@@ -323,7 +323,7 @@ cpu_sd :: (ins: u32) {
 cpu_lwc1 :: (ins: u32) {
     base, ft, imm := decode_i(ins);
     addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
-    cpu.fgr[ft].i32 = read_4_v(addr);
+    cpu.fgr[ft].i32 = cast,no_check(s32,read_4_v(addr));
 }
 
 cpu_ldc1 :: (ins: u32) {
@@ -332,13 +332,13 @@ cpu_ldc1 :: (ins: u32) {
     addr &= 0xfffffff8;
     hi : u64 = read_4_v(addr);
     lo : u64 = read_4_v(addr + 4);
-    cpu.fgr[ft].i64 = (hi << 32) | lo;
+    cpu.fgr[ft].i64 = cast,no_check(s64,(hi << 32) | lo);
 }
 
 cpu_swc1 :: (ins: u32) {
     base, ft, imm := decode_i(ins);
     addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
-    write_4_v(addr, xx cpu.fgr[ft].i32);
+    write_4_v(addr, cast,no_check(u32,cpu.fgr[ft].i32));
 }
 
 cpu_sdc1 :: (ins: u32) {
@@ -533,11 +533,11 @@ cpu_cop1 :: (ins: u32) {
     if fmt < 16 {
         if fmt == {
             case 0;
-                cpu_reg_dst(ft, cpu.fgr[fs].i32);
+                cpu_reg_dst(ft, cast,no_check(u32,cpu.fgr[fs].i32));
             case 2;
                 cpu_reg_dst(ft, cpu.fcr[fs]);
             case 4;
-                cpu.fgr[fs].i64 = cpu_reg_src(ft) & 0xffffffff;
+                cpu.fgr[fs].i64 = cast,no_check(s64,cpu_reg_src(ft) & 0xffffffff);
             case 6;
                 cpu.fcr[fs] = xx cpu_reg_src(ft);
             case 8;
@@ -593,6 +593,15 @@ cpu_cop1 :: (ins: u32) {
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
+            case 1;
+                if fmt == {
+                    case 16;
+                        cpu.fgr[fd].f32 = cpu.fgr[fs].f32 - cpu.fgr[ft].f32;
+                    case 17;
+                        cpu.fgr[fd].f64 = cpu.fgr[fs].f64 - cpu.fgr[ft].f64;
+                    case;
+                        assert(false, "Invalid format %", fmt);
+                }
             case 2;
                 if fmt == {
                     case 16;
@@ -620,6 +629,27 @@ cpu_cop1 :: (ins: u32) {
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
+            case 7;
+                if fmt == {
+                    case 16;
+                        cpu.fgr[fd].f32 = -cpu.fgr[fs].f32;
+                    case 17;
+                        cpu.fgr[fd].f64 = -cpu.fgr[fs].f64;
+                    case;
+                        assert(false, "Invalid format %", fmt);
+                }
+            case 13;
+                mode := get_rounding_mode();
+                set_rounding_mode(Rounding_Mode.ZERO);
+                if fmt == {
+                    case 16;
+                        cpu.fgr[fd].i32 = round_f32_to_i32(cpu.fgr[fs].f32);
+                        cpu.fgr[fd].i64 &= 0xffffffff;
+                    case 17;
+                        cpu.fgr[fd].i32 = round_f64_to_i32(cpu.fgr[fs].f64);
+                        cpu.fgr[fd].i64 &= 0xffffffff;
+                }
+                set_rounding_mode(mode);
             case 32;
                 if fmt == {
                     case 17;
@@ -631,6 +661,17 @@ cpu_cop1 :: (ins: u32) {
                     case 21;
                         cpu.fgr[fd].f32 = xx cpu.fgr[fs].i64;
                         cpu.fgr[fd].i64 &= 0xffffffff;
+                    case;
+                        assert(false, "Invalid format %", fmt);
+                }
+            case 33;
+                if fmt == {
+                    case 16;
+                        cpu.fgr[fd].f64 = xx cpu.fgr[fs].f32;
+                    case 20;
+                        cpu.fgr[fd].f64 = xx cpu.fgr[fs].i32;
+                    case 21;
+                        cpu.fgr[fd].f64 = xx cpu.fgr[fs].i64;
                     case;
                         assert(false, "Invalid format %", fmt);
                 }

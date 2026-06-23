@@ -38,12 +38,28 @@ ui :: () {
     cpu_disasm_state.bp_addr = *cpu.bp;
     rsp_disasm_state.bp_addr = *rsp.bp;
 
+    show_header := false;
+    show_cpu := false;
+    show_disasm := false;
+    show_rsp := false;
+    show_rdp := false;
+    show_mem := false;
+
     while(!rl.WindowShouldClose()) {
         rl.ClearBackground(rl.BLACK);
         rl.BeginDrawing();
 
+        if rl.IsKeyPressed(rl.KeyboardKey.KEY_F9) cpu.state = .STOPPED;
         if rl.IsKeyDown(rl.KeyboardKey.KEY_F10) cpu.state = .STARTED;
         if rl.IsKeyPressed(rl.KeyboardKey.KEY_F11) cpu.state = .STARTED;
+        if rl.IsKeyPressed(rl.KeyboardKey.KEY_TAB) show_header = !show_header;
+        if rl.IsKeyDown(rl.KeyboardKey.KEY_LEFT_SHIFT) {
+            if rl.IsKeyPressed(rl.KeyboardKey.KEY_C) show_cpu = !show_cpu;
+            if rl.IsKeyPressed(rl.KeyboardKey.KEY_D) show_disasm = !show_disasm;
+            if rl.IsKeyPressed(rl.KeyboardKey.KEY_S) show_rsp = !show_rsp;
+            if rl.IsKeyPressed(rl.KeyboardKey.KEY_G) show_rdp = !show_rdp;
+            if rl.IsKeyPressed(rl.KeyboardKey.KEY_M) show_mem = !show_mem;
+        }
 
         if cpu.state == {
             case .STOPPED;
@@ -86,13 +102,38 @@ ui :: () {
                 if cpu_disasm_state.follow cpu_disasm_state.scroll_state = cpu.pc;
                 if rsp_disasm_state.follow rsp_disasm_state.scroll_state = rsp.pc | 0x84001000;
         }
+        rdp_process_display_list();
 
         rg.backend_frame_begin();
 
-        cpu_window();
-        disasm_window(*cpu_disasm_state);
-        disasm_window(*rsp_disasm_state);
-        memory_window();
+        if show_header
+            if im.BeginMainMenuBar() {
+                if im.BeginMenu("Tools") {
+                    if im.MenuItem("cpu", "shift+c") {
+                        show_cpu = !show_cpu;
+                    }
+                    if im.MenuItem("cpudisasm", "shift+d") {
+                        show_disasm = !show_disasm;
+                    }
+                    if im.MenuItem("rspdisasm", "shift+s") {
+                        show_rsp = !show_rsp;
+                    }
+                    if im.MenuItem("rdp", "shift+g") {
+                        show_rdp = !show_rdp;
+                    }
+                    if im.MenuItem("memory", "shift+m") {
+                        show_mem = !show_mem;
+                    }
+                    im.EndMenu();
+                }
+                im.EndMainMenuBar();
+            }
+
+        if show_cpu cpu_window();
+        if show_disasm disasm_window(*cpu_disasm_state);
+        if show_rsp disasm_window(*rsp_disasm_state);
+        if show_rdp rdp_window();
+        if show_mem memory_window();
 
         rg.backend_frame_end();
         rl.EndDrawing();
@@ -714,5 +755,220 @@ memory_window :: () {
         array_add(*mem_state.elem, .{});
     }
     im.EndTabBar();
+    im.End();
+}
+
+rdp_window :: () {
+    im.Begin("rdp");
+    start := rsp.cp0[Sp.CMD_START];
+    end := rsp.cp0[Sp.CMD_END];
+    im.Text_CFormat("Display List Start: %08x", start);
+    im.Text_CFormat("Display List End: %08x", end);
+    im.Text_CFormat("RDP Status: %08x", rsp.cp0[Sp.CMD_STATUS]);
+    im.Separator();
+
+    xbus := rsp.cp0[Sp.CMD_STATUS] & xx Dp_Cmd_Status_R.XBUS_DMEM_DMA;
+    addr := start;
+    get_val :: (a: u32, x: u32) -> u64 {
+        if x {
+            return lswap(mem.dmem._64[a >> 3]);
+        } else {
+            return lswap(mem.ram._64[a >> 3]);
+        }
+    }
+    while addr != end {
+        val := get_val(addr, xbus);
+        idx := (addr - start) / 8;
+        cmd := (val >> 56) & 0x3f;
+
+        if cmd == {
+            case 0x27;
+                im.Text("Sync Pipe");
+            case 0x29;
+                im.Text("Sync Full");
+            case 0x2d;
+                if im.CollapsingHeader(tprint("Set Scissor##%\0", idx).data, .OpenOnArrow) {
+                    yl := val & 0xfff;
+                    xl := (val >> 12) & 0xfff;
+                    o := (val >> 24) & 1;
+                    f := (val >> 25) & 1;
+                    yh := (val >> 32) & 0xfff;
+                    xh := (val >> 44) & 0xfff;
+
+                    im.Indent();
+                    im.Text("X top left: %", cast(float, xh) / 4);
+                    im.Text("Y top left: %", cast(float, yh) / 4);
+                    im.Text("X bottom right: %", cast(float, xl) / 4);
+                    im.Text("Y bottom right: %", cast(float, yl) / 4);
+                    im.Unindent();
+                }
+            case 0x2f;
+                // prevent drawing multiple mode sets in a row
+                if ((get_val(addr + 8, xbus) >> 56) & 0x3f) != 0x2f || addr + 8 == end {
+                    if im.CollapsingHeader(tprint("Set Other Modes##%\0", idx).data, .OpenOnArrow) {
+                        A := (val) & 0x1;
+                        B := (val >> 1) & 0x1;
+                        C := (val >> 2) & 0x1;
+                        D := (val >> 3) & 0x1;
+                        E := (val >> 4) & 0x1;
+                        F := (val >> 5) & 0x1;
+                        G := (val >> 6) & 0x1;
+                        H := (val >> 7) & 0x1;
+                        I := (val >> 8) & 0x3;
+                        J := (val >> 10) & 0x3;
+                        K := (val >> 12) & 0x1;
+                        L := (val >> 13) & 0x1;
+                        M := (val >> 14) & 0x1;
+                        _ := (val >> 15) & 0x1;
+                        O := (val >> 16) & 0x3;
+                        P := (val >> 18) & 0x3;
+                        Q := (val >> 20) & 0x3;
+                        R := (val >> 22) & 0x3;
+                        S := (val >> 24) & 0x3;
+                        T := (val >> 26) & 0x3;
+                        U := (val >> 28) & 0x3;
+                        V := (val >> 30) & 0x3;
+                        V1 := (val >> 36) & 0x3;
+                        V2 := (val >> 38) & 0x3;
+                        W := (val >> 40) & 0x1;
+                        X := (val >> 41) & 0x1;
+                        Y := (val >> 42) & 0x1;
+                        Z := (val >> 43) & 0x1;
+                        a := (val >> 44) & 0x1;
+                        b := (val >> 45) & 0x1;
+                        c := (val >> 46) & 0x1;
+                        d := (val >> 47) & 0x1;
+                        e := (val >> 48) & 0x1;
+                        f := (val >> 49) & 0x1;
+                        g := (val >> 50) & 0x1;
+                        h := (val >> 51) & 0x1;
+                        i := (val >> 52) & 0x3;
+                        _ := (val >> 54) & 0x1;
+                        k := (val >> 55) & 0x1;
+
+                        im.Indent();
+                        im.Text("Alpha Compare: %", cast(bool, A));
+                        im.Text("Dither Alpha: %", cast(bool, B));
+                        im.Text("Z Source: %", string.["Primitive Z", "Pixel Z"][C]);
+                        im.Text("Antialiasing: %", cast(bool, D));
+                        im.Text("Z Compare: %", cast(bool, E));
+                        im.Text("Z Update: %", cast(bool, F));
+                        im.Text("Image Read: %", cast(bool, G));
+                        im.Text("Color On Coverage: %", cast(bool, H));
+                        im.Text("Coverage Write: %", string.["clamp", "wrap", "zap", "save"][I]);
+                        im.Text("Z Mode: %", string.["opaque", "interpenetrating", "transparent", "decal"][J]);
+                        im.Text("Coverage Times Alpha: %", cast(bool, K));
+                        im.Text("Alpha Coverage Select: %", cast(bool, L));
+                        im.Text("Force Blend: %", cast(bool, M));
+                        im.Text("Blend Multiply 2b Cycle 1: %", O);
+                        im.Text("Blend Multiply 2b Cycle 0: %", P);
+                        im.Text("Blend Multiply 2a Cycle 1: %", Q);
+                        im.Text("Blend Multiply 2a Cycle 0: %", R);
+                        im.Text("Blend Multiply 1b Cycle 1: %", S);
+                        im.Text("Blend Multiply 1b Cycle 0: %", T);
+                        im.Text("Blend Multiply 1a Cycle 1: %", U);
+                        im.Text("Blend Multiply 1a Cycle 0: %", V);
+                        im.Text("Alpha Dither Select: %", string.["pattern", "NOT pattern", "noise", "no dither"][V1]);
+                        im.Text("RGB Dither Select: %", string.["magic square matrix", "bayer matrix", "noise", "no dither"][V2]);
+                        im.Text("Chroma Keying: %", cast(bool, W));
+                        im.Text("Color Convert Texel: %", cast(bool, X));
+                        im.Text("Bilerp 1: %", cast(bool, Y));
+                        im.Text("Bilerp 0: %", cast(bool, Z));
+                        im.Text("Half Texel Interpolation: %", cast(bool, a));
+                        im.Text("2x2 Texture Sampling: %", cast(bool, b));
+                        im.Text("TLUT Type: %", string.["R5G5B5A1", "I8A8"][c]);
+                        im.Text("TLUT: %", cast(bool, d));
+                        im.Text("Texture LOD: %", cast(bool, e));
+                        im.Text("Sharpened Texture: %", cast(bool, f));
+                        im.Text("Detail Texture: %", cast(bool, g));
+                        im.Text("Perspective Correction: %", cast(bool, h));
+                        im.Text("Cycle Type: %", string.["1 cycle", "2 cycle", "copy", "fill"][i]);
+                        im.Text("Atomic Primitives: %", cast(bool, k));
+                        im.Unindent();
+                    }
+                }
+            case 0x36;
+                if im.CollapsingHeader(tprint("Fill Rectangle##%\0", idx).data, .OpenOnArrow) {
+                    yh := val & 0xfff;
+                    xh := (val >> 12) & 0xfff;
+                    yl := (val >> 32) & 0xfff;
+                    xl := (val >> 44) & 0xfff;
+                    im.Indent();
+                    im.Text("X top left: %", cast(float, xh) / 4);
+                    im.Text("Y top left: %", cast(float, yh) / 4);
+                    im.Text("X bottom right: %", cast(float, xl) / 4);
+                    im.Text("Y bottom right: %", cast(float, yl) / 4);
+                    im.Unindent();
+                }
+            case 0x37;
+                if im.CollapsingHeader(tprint("Set Fill Color##%\0", idx).data, .OpenOnArrow) {
+                    fill_color := val & 0xffffffff;
+                    im.Indent();
+                    im.Text_CFormat("Fill Color: 0x%08x", fill_color);
+                    im.Unindent();
+                }
+            case 0x3c;
+                if im.CollapsingHeader(tprint("Set Combine Mode##%\0", idx).data, .OpenOnArrow) {
+                    add_a_1 := val & 0x7;
+                    sub_b_a_1 := (val >> 3) & 0x7;
+                    add_r_1 := (val >> 6) & 0x7;
+                    add_a_0 := (val >> 9) & 0x7;
+                    sub_b_a_0 := (val >> 12) & 0x7;
+                    add_r_0 := (val >> 15) & 0x7;
+                    mul_a_1 := (val >> 18) & 0x7;
+                    sub_a_a_1 := (val >> 21) & 0x7;
+                    sub_b_r_1 := (val >> 24) & 0xf;
+                    sub_b_r_0 := (val >> 28) & 0xf;
+                    mul_r_1 := (val >> 32) & 0x1f;
+                    sub_a_r_1 := (val >> 37) & 0xf;
+                    mul_a_0 := (val >> 41) & 0x7;
+                    sub_a_a_0 := (val >> 44) & 0x7;
+                    mul_r_0 := (val >> 47) & 0x1f;
+                    sub_a_r_0 := (val >> 52) & 0xf;
+
+                    im.Indent();
+                    im.Text("Cycle 0 RGB A: %", sub_a_r_0);
+                    im.Text("Cycle 0 RGB B: %", sub_b_r_0);
+                    im.Text("Cycle 0 RGB C: %", mul_r_0);
+                    im.Text("Cycle 0 RGB D: %", add_r_0);
+                    im.Text("Cycle 0 Alpha A: %", sub_a_a_0);
+                    im.Text("Cycle 0 Alpha B: %", sub_b_a_0);
+                    im.Text("Cycle 0 Alpha C: %", mul_a_0);
+                    im.Text("Cycle 0 Alpha D: %", add_a_0);
+                    im.Text("Cycle 1 RGB A: %", sub_a_r_1);
+                    im.Text("Cycle 1 RGB B: %", sub_b_r_1);
+                    im.Text("Cycle 1 RGB C: %", mul_r_1);
+                    im.Text("Cycle 1 RGB D: %", add_r_1);
+                    im.Text("Cycle 1 Alpha A: %", sub_a_a_1);
+                    im.Text("Cycle 1 Alpha B: %", sub_b_a_1);
+                    im.Text("Cycle 1 Alpha C: %", mul_a_1);
+                    im.Text("Cycle 1 Alpha D: %", add_a_1);
+                    im.Unindent();
+                }
+            case 0x3e;
+                if im.CollapsingHeader(tprint("Set Z Image##%\0", idx).data, .OpenOnArrow) {
+                    dram_addr := val & 0x3ffffff;
+                    im.Indent();
+                    im.Text_CFormat("DRAM Address: 0x%07x", dram_addr);
+                    im.Unindent();
+                }
+            case 0x3f;
+                if im.CollapsingHeader(tprint("Set Color Image##%\0", idx).data, .OpenOnArrow) {
+                    dram_addr := val & 0x3ffffff;
+                    width := (val >> 32) & 0x3ff;
+                    size := (val >> 51) & 0x3;
+                    format := (val >> 53) & 0x7;
+                    im.Indent();
+                    im.Text_CFormat("DRAM Address: 0x%07x", dram_addr);
+                    im.Text("Width: %", width + 1);
+                    im.Text("Pixel Size: %", string.["4b", "8b", "16b", "32b"][size]);
+                    im.Text("Image Format: %", string.["rgba", "yuv", "color index", "ia", "i"][format]);
+                    im.Unindent();
+                }
+            case;
+                assert(false, "TODO: Visualize unimplemented RDP command 0x%", formatInt(cmd, 16));
+        }
+        addr += 8;
+    }
     im.End();
 }

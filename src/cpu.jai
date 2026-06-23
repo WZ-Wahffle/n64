@@ -3,8 +3,8 @@ Cpu :: struct {
     cp0: [32]u32;
     tlb: [32]struct {entry_lo0: u32; entry_lo1: u32; entry_hi: u32; page_mask: u32;};
     fgr: [64]union {
-        i32: u32;
-        i64: u64;
+        i32: s32;
+        i64: s64;
         f32: float32;
         f64: float64;
     };

@@ -428,7 +428,7 @@ write_4 :: (addr: u32, val: u32, override := false) {
                         src := rsp.cp0[Sp.DRAM_ADDR];
                         dst := rsp.cp0[Sp.MEM_ADDR] & 0xfff;
                         region := rsp.cp0[Sp.MEM_ADDR] & 0x1000;
-                        assert((val + 1) % 4 == 0);
+                        assert((val + 1) % 4 == 0, "%", val);
                         for 0..(val/4) {
                             if region != 0 {
                                 mem.imem._32[dst >> 2] = mem.ram._32[src >> 2];
@@ -482,6 +482,8 @@ write_4 :: (addr: u32, val: u32, override := false) {
                 if val & xx Mi_Intr_Mask_W.SET_PI != 0 then mem.mi._32[Mi.INTR_MASK] |= xx Mi_Intr_R.PI;
                 if val & xx Mi_Intr_Mask_W.CLR_DP != 0 then mem.mi._32[Mi.INTR_MASK] &= xx ~Mi_Intr_R.DP;
                 if val & xx Mi_Intr_Mask_W.SET_DP != 0 then mem.mi._32[Mi.INTR_MASK] |= xx Mi_Intr_R.DP;
+            } else if off == xx Mi.INIT_MODE {
+                mem.mi._32[Mi.INTR] &= xx ~Mi_Intr_R.DP;
             } else {
                 mem.mi._32[off] = val;
             }

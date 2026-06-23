@@ -11,6 +11,7 @@ boot_rom :: #run read_entire_file("../in/boot_rom.bin");
 
 cpu: Cpu;
 rsp: Rsp;
+rdp: Rdp;
 mem: Memory;
 ai: Ai;
 
@@ -56,12 +57,14 @@ main :: () {
     ui();
 }
 
+#load "rounding.jai";
 #load "ai.jai";
 #load "vi.jai";
 #load "style.jai";
 #load "ui.jai";
 #load "cpu.jai";
 #load "rsp.jai";
+#load "rdp.jai";
 #load "memory.jai";
 #load "cpu-instrs.jai";
 #load "rsp-instrs.jai";
