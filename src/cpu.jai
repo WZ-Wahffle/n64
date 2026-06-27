@@ -311,6 +311,7 @@ cpu_reset :: () {
 }
 
 check_rcp_interrupts :: () {
+    if cpu.state != .RUNNING return;
     if mem.mi._32[Mi.INTR_MASK] & mem.mi._32[Mi.INTR] != 0 {
         cpu.cp0[Cp0.CAUSE] |= xx Cpu_Cause.RCP;
     } else {

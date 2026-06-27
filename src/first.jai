@@ -15,7 +15,47 @@ rdp: Rdp;
 mem: Memory;
 ai: Ai;
 
+assertion_handler :: (loc: Source_Code_Location, msg: string) -> bool {
+    print("%:%,%: Assertion failed", loc.fully_pathed_filename, loc.line_number, loc.character_number);
+    if msg {
+        print(": %\n", msg);
+    } else {
+        print("!\n");
+    }
+    print("\nStack trace:\n");
+    print_stack_trace(context.stack_trace);
+    print("\nCPU PC: 0x%\n", formatInt(cpu.pc, 16, 8));
+    print("RSP PC: 0x%\n", formatInt(rsp.pc, 16, 8));
+    print("CPU Registers:\n");
+    labels :: string.[
+        "$zero", "$at",
+        "$v0", "$v1",
+        "$a0", "$a1", "$a2", "$a3",
+        "$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7",
+        "$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7",
+        "$t8", "$t9",
+        "$k0", "$k1",
+        "$gp", "$sp", "$fp", "$ra"
+    ];
+    for 0..15 {
+        print("%:\t0x% %:\t0x%\n",
+            labels[it * 2], formatInt(cpu.gpr[it * 2], 16, 16),
+            labels[it * 2 + 1], formatInt(cpu.gpr[it * 2 + 1], 16, 16)
+        );
+    }
+    print("RSP Registers:\n");
+    for 0..15 {
+        print("$r%:\t0x% $r%:\t0x%\n",
+            it * 2, formatInt(rsp.gpr[it * 2], 16, 8),
+            it * 2 + 1, formatInt(rsp.gpr[it * 2 + 1], 16, 8)
+        );
+    }
+    __runtime_support_disable_stack_trace = true;
+    return true;
+}
+
 main :: () {
+    context.assertion_failed = assertion_handler;
     assert(mem.boot_rom._8.count == boot_rom.count, "Incorrect boot rom size");
     memcpy(mem.boot_rom._8.data, boot_rom.data, boot_rom.count);
     args := get_command_line_arguments();

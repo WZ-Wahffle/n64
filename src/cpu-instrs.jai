@@ -449,8 +449,7 @@ cpu_bgezal :: (ins: u32) {
 cpu_j :: (ins: u32) {
     addr := decode_j(ins);
     cpu_execute_next(true);
-    cpu.pc &= 0xf0000000;
-    cpu.pc |= addr << 2;
+    cpu.pc = (cpu.pc & 0xf0000000) | (addr << 2);
 }
 
 cpu_jr :: (ins: u32) {
@@ -464,8 +463,7 @@ cpu_jal :: (ins: u32) {
     addr := decode_j(ins);
     cpu.gpr[31] = cpu.pc + 4; // TODO: verify
     cpu_execute_next(true);
-    cpu.pc &= 0xf0000000;
-    cpu.pc |= addr << 2;
+    cpu.pc = (cpu.pc & 0xf0000000) | (addr << 2);
 }
 
 cpu_jalr :: (ins: u32) {

@@ -42,6 +42,7 @@ ui :: () {
     show_cpu := false;
     show_disasm := false;
     show_rsp := false;
+    show_rsp_disasm := false;
     show_rdp := false;
     show_mem := false;
 
@@ -56,7 +57,8 @@ ui :: () {
         if rl.IsKeyDown(rl.KeyboardKey.KEY_LEFT_SHIFT) {
             if rl.IsKeyPressed(rl.KeyboardKey.KEY_C) show_cpu = !show_cpu;
             if rl.IsKeyPressed(rl.KeyboardKey.KEY_D) show_disasm = !show_disasm;
-            if rl.IsKeyPressed(rl.KeyboardKey.KEY_S) show_rsp = !show_rsp;
+            if rl.IsKeyPressed(rl.KeyboardKey.KEY_R) show_rsp = !show_rsp;
+            if rl.IsKeyPressed(rl.KeyboardKey.KEY_S) show_rsp_disasm = !show_rsp_disasm;
             if rl.IsKeyPressed(rl.KeyboardKey.KEY_G) show_rdp = !show_rdp;
             if rl.IsKeyPressed(rl.KeyboardKey.KEY_M) show_mem = !show_mem;
         }
@@ -115,8 +117,11 @@ ui :: () {
                     if im.MenuItem("cpudisasm", "shift+d") {
                         show_disasm = !show_disasm;
                     }
-                    if im.MenuItem("rspdisasm", "shift+s") {
+                    if im.MenuItem("rsp", "shift+r") {
                         show_rsp = !show_rsp;
+                    }
+                    if im.MenuItem("rspdisasm", "shift+s") {
+                        show_rsp_disasm = !show_rsp_disasm;
                     }
                     if im.MenuItem("rdp", "shift+g") {
                         show_rdp = !show_rdp;
@@ -131,7 +136,8 @@ ui :: () {
 
         if show_cpu cpu_window();
         if show_disasm disasm_window(*cpu_disasm_state);
-        if show_rsp disasm_window(*rsp_disasm_state);
+        if show_rsp rsp_window();
+        if show_rsp_disasm disasm_window(*rsp_disasm_state);
         if show_rdp rdp_window();
         if show_mem memory_window();
 
@@ -171,8 +177,8 @@ cpu_window :: () {
     im.SeparatorText("Registers");
     im.Text_CFormat("PC: 0x%08x", cpu.pc);
     if im.TreeNode("GPRs") {
-        for regs {
-                im.Text_CFormat("%s: 0x%016llx", it.data, cpu.gpr[it_index]);
+        for 0..15 {
+                im.Text_CFormat("%s: 0x%016llx %s: 0x%016llx", regs[it*2].data, cpu.gpr[it*2], regs[it*2+1].data, cpu.gpr[it*2+1]);
             }
         im.TreePop();
     }
@@ -207,6 +213,35 @@ cpu_window :: () {
     im.End();
 }
 
+rsp_window :: () {
+    im.Begin("rsp");
+    im.SeparatorText("Control");
+    if im.Button("Start") {
+        cpu.state = .STARTED;
+    }
+    im.SameLine();
+    if im.Button("Stop") {
+        cpu.state = .STOPPED;
+    }
+    im.SameLine();
+    if im.Button("Step") {
+        cpu.state = .RUNNING;
+        step(-rsp.remaining_cycles + 1);
+        cpu.state = .STOPPED;
+        if cpu_disasm_state.follow cpu_disasm_state.scroll_state = cpu.pc;
+        if rsp_disasm_state.follow rsp_disasm_state.scroll_state = rsp.pc | 0x84001000;
+    }
+    im.SeparatorText("Registers");
+    im.Text_CFormat("PC: 0x%08x", rsp.pc);
+    if im.TreeNode("GPRs") {
+        for 0..15 {
+                im.Text_CFormat("%s: 0x%08x %s: 0x%08x", regs[it*2].data, rsp.gpr[it*2], regs[it*2+1].data, rsp.gpr[it*2+1]);
+            }
+        im.TreePop();
+    }
+    im.End();
+}
+
 disasm :: (addr: u32, state: *Disasm_State) -> str: string, info: Disasm_Return, ins: u32 {
     ins := read_4_v(addr);
     a, b := disasm_explicit(addr, ins, state);
@@ -227,7 +262,7 @@ Disasm_Return :: struct {
 }
 
 disasm_explicit :: (addr: u32, val: u32, state: *Disasm_State) -> (str: string, info: Disasm_Return = {.NORMAL, 0, false, 0}) {
-    to_reg :: (reg: u32) -> string {
+    to_reg :: (reg: u32, state: *Disasm_State) -> string {
         labels :: string.[
             "$zero", "$at",
             "$v0", "$v1",
@@ -238,16 +273,16 @@ disasm_explicit :: (addr: u32, val: u32, state: *Disasm_State) -> (str: string, 
             "$k0", "$k1",
             "$gp", "$sp", "$fp", "$ra"
         ];
-        return ifx cpu_disasm_state.pretty_regs then labels[reg] else tprint("$r%", reg);
+        return ifx state.pretty_regs then labels[reg] else tprint("$r%", reg);
     }
 
     op := val >> 26;
     rs_idx := (val >> 21) & 0x1f;
-    rs := to_reg(rs_idx);
+    rs := to_reg(rs_idx, state);
     rt_idx := (val >> 16) & 0x1f;
-    rt := to_reg(rt_idx);
+    rt := to_reg(rt_idx, state);
     rd_idx := (val >> 11) & 0x1f;
-    rd := to_reg(rd_idx);
+    rd := to_reg(rd_idx, state);
     sa := (val >> 6) & 0x1f;
     funct := val & 0x3f;
     imm := val & 0xffff;

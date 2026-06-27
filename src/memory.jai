@@ -428,8 +428,9 @@ write_4 :: (addr: u32, val: u32, override := false) {
                         src := rsp.cp0[Sp.DRAM_ADDR];
                         dst := rsp.cp0[Sp.MEM_ADDR] & 0xfff;
                         region := rsp.cp0[Sp.MEM_ADDR] & 0x1000;
-                        assert((val + 1) % 4 == 0, "%", val);
-                        for 0..(val/4) {
+                        len := ((val + 1) & 0xffc) - 1;
+                        assert(val >> 12 == 0, "TODO: RSP DMA Read skip/count %", formatInt(val, 16));
+                        for 0..(len/4) {
                             if region != 0 {
                                 mem.imem._32[dst >> 2] = mem.ram._32[src >> 2];
                             } else {
@@ -443,8 +444,9 @@ write_4 :: (addr: u32, val: u32, override := false) {
                         dst := rsp.cp0[Sp.DRAM_ADDR];
                         src := rsp.cp0[Sp.MEM_ADDR] & 0xfff;
                         region := rsp.cp0[Sp.MEM_ADDR] & 0x1000;
-                        assert((val + 1) % 4 == 0);
-                        for 0..(val/4) {
+                        len := ((val + 1) & 0xffc) - 1;
+                        assert(val >> 12 == 0, "TODO: RSP DMA Write skip/count %", formatInt(val, 16));
+                        for 0..(len/4) {
                             if region != 0 {
                                 mem.ram._32[dst >> 2] = mem.imem._32[src >> 2];
                             } else {
@@ -531,7 +533,7 @@ write_4 :: (addr: u32, val: u32, override := false) {
             }
             if off == 4 {
                 if val & 0b10 != 0 {
-                    mem.mi._32[Mi.INTR] &= ~cast(u32, Mi_Intr_R.PI);
+                    mem.mi._32[Mi.INTR] &= xx ~Mi_Intr_R.PI;
                 }
                 if val & 0b1 != 0 {
                     // TODO: reset controller
@@ -555,7 +557,6 @@ write_4 :: (addr: u32, val: u32, override := false) {
                 }
                 mem.si._32[Si.STATUS] |= xx Si_Status.INTERRUPT;
                 mem.mi._32[Mi.INTR] |= xx Mi_Intr_R.SI;
-                check_rcp_interrupts();
             }
             if off == xx Si.DMA_WRITE {
                 src := mem.si._32[Si.DRAM_ADDR];
@@ -611,10 +612,10 @@ write_4 :: (addr: u32, val: u32, override := false) {
 
                 mem.si._32[Si.STATUS] |= xx Si_Status.INTERRUPT;
                 mem.mi._32[Mi.INTR] |= xx Mi_Intr_R.SI;
-                check_rcp_interrupts();
             }
             if off == xx Si.STATUS {
                 mem.si._32[Si.STATUS] &= xx ~Si_Status.INTERRUPT;
+                mem.mi._32[Mi.INTR] &= xx ~Mi_Intr_R.SI;
             }
         }
         else assert(false, "TODO: Write RCP Registers 0x% at 0x%", formatInt(val, 16), formatInt(addr, 16));

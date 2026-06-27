@@ -290,7 +290,6 @@ rsp_break :: (ins: u32) {
         rsp.cp0[Sp.STATUS] |= xx Sp_Status_R.BROKE;
         if rsp.cp0[Sp.STATUS] & xx Sp_Status_R.INTR_BREAK != 0 {
             mem.mi._32[Mi.INTR] |= xx Mi_Intr_R.SP;
-            check_rcp_interrupts();
         }
     } else {
         if cpu.state == .RUNNING {

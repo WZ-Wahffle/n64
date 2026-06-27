@@ -16,6 +16,7 @@ rdp_process_display_list :: () {
     xbus := rsp.cp0[Sp.CMD_STATUS] & xx Dp_Cmd_Status_R.XBUS_DMEM_DMA;
 
     if rsp.cp0[Sp.CMD_CURRENT] == end return;
+    if cpu.state != .RUNNING return;
     addr := start;
     while addr < end {
         val : u64;
@@ -81,5 +82,5 @@ rdp_process_display_list :: () {
     }
     rsp.cp0[Sp.CMD_CURRENT] = addr;
     mem.mi._32[Mi.INTR] |= xx Mi_Intr_R.DP;
-    check_rcp_interrupts();
+    rsp.cp0[Sp.CMD_STATUS] |= xx Dp_Cmd_Status_R.CBUF_READY;
 }
