@@ -11,11 +11,11 @@ Rdp :: struct {
 }
 
 rdp_process_display_list :: () {
-    start := rsp.cp0[Sp.CMD_START];
+    start := rsp.cp0[Sp.CMD_CURRENT];
     end := rsp.cp0[Sp.CMD_END];
     xbus := rsp.cp0[Sp.CMD_STATUS] & xx Dp_Cmd_Status_R.XBUS_DMEM_DMA;
 
-    if rsp.cp0[Sp.CMD_CURRENT] == end return;
+    if start == end return;
     if cpu.state != .RUNNING return;
     addr := start;
     while addr < end {
@@ -58,7 +58,7 @@ rdp_process_display_list :: () {
                         while y <= y_max {
                             x := line_offset_bytes;
                             while x <= line_end_bytes {
-                                mem.ram._64[(addr + y * line_width_bytes + x) >> 3] = col;
+                                // mem.ram._64[(addr + y * line_width_bytes + x) >> 3] = col;
                                 x += 8;
                             }
                             y += 1;

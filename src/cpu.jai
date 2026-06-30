@@ -94,7 +94,7 @@ cpu_instr_lut := (_:u32).[
     cpu_blezl,
     null,
     null,
-    null,
+    cpu_daddiu,
     null,
     null,
     null,
@@ -166,7 +166,7 @@ cpu_special_lut := (_:u32).[
     cpu_divu,
     null,
     cpu_dmultu,
-    null,
+    cpu_ddiv,
     cpu_ddivu,
     cpu_add,
     cpu_addu,
@@ -263,7 +263,29 @@ write_4_v :: (addr: u32, val: u32, override := false) {
 
 virt2phys :: (addr: u32) -> u32 {
     if addr < 0x80000000 {
-        assert(false, "TODO: Resolve KUSEG TLB map at 0x%", formatInt(addr, 16, 8));
+        asid := cpu.cp0[Cp0.ENTRYHI] & 0xff;
+        for cpu.tlb {
+            entry_asid := it.entry_hi & 0xff;
+            global := (it.entry_lo0 & 1) && (it.entry_lo1 & 1);
+
+            if global || (asid == entry_asid) {
+                page_size := ((it.page_mask >> 13) + 1) << 12;
+                src_addr := it.entry_hi & 0xffffe000;
+
+                if addr >= src_addr && addr < src_addr + page_size {
+                    dst_addr1 := (it.entry_lo0 >> 6) << 12;
+                    off := addr - src_addr;
+                    return dst_addr1 + off;
+                }
+                if addr >= src_addr + page_size && addr < src_addr + page_size * 2 {
+                    dst_addr2 := (it.entry_lo1 >> 6) << 12;
+                    off := addr - (src_addr + page_size);
+                    return dst_addr2 + off;
+                }
+            }
+        }
+
+        assert(false, "Failed TLB lookup of 0x%, TLB: %", formatInt(addr, 16, 8), cpu.tlb);
     }
     if addr < 0xc0000000 {
         return addr & 0x1fffffff;

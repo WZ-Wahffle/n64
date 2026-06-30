@@ -56,7 +56,17 @@ rsp_addi :: (ins: u32) {
     rsp_reg_dst(rt, (rsp_reg_src(rs) + sign_extend_2(imm)));
 }
 
+rsp_addiu :: (ins: u32) {
+    rs, rt, imm := decode_i(ins);
+    rsp_reg_dst(rt, (rsp_reg_src(rs) + sign_extend_2(imm)));
+}
+
 rsp_add :: (ins: u32) {
+    rs, rt, rd := decode_r(ins);
+    rsp_reg_dst(rd, (rsp_reg_src(rs) + rsp_reg_src(rt)));
+}
+
+rsp_addu :: (ins: u32) {
     rs, rt, rd := decode_r(ins);
     rsp_reg_dst(rd, (rsp_reg_src(rs) + rsp_reg_src(rt)));
 }
@@ -94,6 +104,12 @@ rsp_lw :: (ins: u32) {
     base, rt, imm := decode_i(ins);
     addr := (rsp_reg_src(base) + sign_extend_2(imm)) & 0xfff;
     rsp_reg_dst(rt, wswap(mem.dmem._32[addr >> 2]));
+}
+
+rsp_sb :: (ins: u32) {
+    base, rt, imm := decode_i(ins);
+    addr := (rsp_reg_src(base) + sign_extend_2(imm)) & 0xfff;
+    mem.dmem._8[addr] = xx (rsp_reg_src(rt) & 0xff);
 }
 
 rsp_sh :: (ins: u32) {
@@ -220,6 +236,26 @@ rsp_cop2 :: (ins: u32) {
                     rsp.acc[i]._16[0] += 0x8000; // "rounding", effectively adds 0.5
                     rsp.v[vd]._16s[i] = cast,no_check(s16, result & 0xffff);
                 }
+            case 7;
+                // vmudh
+                for i: 0..7 {
+                    j := 0;
+                    if e == 0 {
+                        j = i;
+                    } else if e & 0b1110 == 0b10 {
+                        j = (e & 0b1) + (i & 0b110);
+                    } else if e & 0b1100 == 0b100 {
+                        j = (e & 0b11) + (i & 0b100);
+                    } else if e & 0b1000 == 0b1000 {
+                        j = e & 0b111;
+                    } else {
+                        assert(false, "unreachable");
+                    }
+                    result := cast,no_check(u32, cast(s32,rsp.v[vs]._16s[i]) * cast(s32,rsp.v[vt]._16s[j])) << 1;
+                    rsp.acc[i]._16[1] = xx (result & 0xffff);
+                    rsp.acc[i]._16[0] = 0;
+                    rsp.v[vd]._16s[i] = cast,no_check(s16, rsp.acc[i]._16[1]);
+                }
             case 8;
                 // vmacf
                 for i: 0..7 {
@@ -240,6 +276,84 @@ rsp_cop2 :: (ins: u32) {
                     rsp.acc[i]._16[2] += xx (result >> 16);
                     rsp.v[vd]._16s[i] = cast,no_check(s16, result & 0xffff);
                 }
+            case 12;
+                // vmadl
+                for i: 0..7 {
+                    j := 0;
+                    if e == 0 {
+                        j = i;
+                    } else if e & 0b1110 == 0b10 {
+                        j = (e & 0b1) + (i & 0b110);
+                    } else if e & 0b1100 == 0b100 {
+                        j = (e & 0b11) + (i & 0b100);
+                    } else if e & 0b1000 == 0b1000 {
+                        j = e & 0b111;
+                    } else {
+                        assert(false, "unreachable");
+                    }
+                    result := cast,no_check(u32, cast(s32,rsp.v[vs]._16s[i]) * cast(s32,rsp.v[vt]._16s[j])) << 1;
+                    rsp.acc[i]._16[0] += xx (result >> 16);
+                    rsp.v[vd]._16s[i] = cast,no_check(s16, rsp.acc[i]._16[0]);
+                }
+            case 13;
+                // vmadm
+                for i: 0..7 {
+                    j := 0;
+                    if e == 0 {
+                        j = i;
+                    } else if e & 0b1110 == 0b10 {
+                        j = (e & 0b1) + (i & 0b110);
+                    } else if e & 0b1100 == 0b100 {
+                        j = (e & 0b11) + (i & 0b100);
+                    } else if e & 0b1000 == 0b1000 {
+                        j = e & 0b111;
+                    } else {
+                        assert(false, "unreachable");
+                    }
+                    result := cast,no_check(u32, cast(s32,rsp.v[vs]._16s[i]) * cast(s32,rsp.v[vt]._16s[j])) << 1;
+                    rsp.acc[i]._16[0] += xx (result & 0xffff);
+                    rsp.acc[i]._16[1] += xx (result >> 16);
+                    rsp.v[vd]._16s[i] = cast,no_check(s16, rsp.acc[i]._16[1]);
+                }
+            case 14;
+                // vmadn
+                for i: 0..7 {
+                    j := 0;
+                    if e == 0 {
+                        j = i;
+                    } else if e & 0b1110 == 0b10 {
+                        j = (e & 0b1) + (i & 0b110);
+                    } else if e & 0b1100 == 0b100 {
+                        j = (e & 0b11) + (i & 0b100);
+                    } else if e & 0b1000 == 0b1000 {
+                        j = e & 0b111;
+                    } else {
+                        assert(false, "unreachable");
+                    }
+                    result := cast,no_check(u32, cast(s32,rsp.v[vs]._16s[i]) * cast(s32,rsp.v[vt]._16s[j])) << 1;
+                    rsp.acc[i]._16[0] += xx (result & 0xffff);
+                    rsp.acc[i]._16[1] += xx (result >> 16);
+                    rsp.v[vd]._16s[i] = cast,no_check(s16, rsp.acc[i]._16[0]);
+                }
+            case 15;
+                // vmadh
+                for i: 0..7 {
+                    j := 0;
+                    if e == 0 {
+                        j = i;
+                    } else if e & 0b1110 == 0b10 {
+                        j = (e & 0b1) + (i & 0b110);
+                    } else if e & 0b1100 == 0b100 {
+                        j = (e & 0b11) + (i & 0b100);
+                    } else if e & 0b1000 == 0b1000 {
+                        j = e & 0b111;
+                    } else {
+                        assert(false, "unreachable");
+                    }
+                    result := cast,no_check(u32, cast(s32,rsp.v[vs]._16s[i]) * cast(s32,rsp.v[vt]._16s[j])) << 1;
+                    rsp.acc[i]._16[1] += xx (result & 0xffff);
+                    rsp.v[vd]._16s[i] = cast,no_check(s16, rsp.acc[i]._16[1]);
+                }
             case;
                 assert(false, "TODO %", imm & 0x3f);
         }
@@ -251,14 +365,17 @@ rsp_lwc2 :: (ins: u32) {
     opcode := (rest >> 11) & 0x1f;
     element := (rest >> 7) & 0xf;
     offset := rest & 0x7f;
+    offset = sign_extend_1(offset << 1) >> 1;
     if opcode == {
         case 3;
             rsp.v[vt]._64[element >> 3] = lswap(mem.dmem._64[(rsp_reg_src(base) >> 3) + offset]);
         case 4;
             addr := rsp_reg_src(base) + offset * 16;
-            assert(addr % 16 == 0, "FIXME"); // for future reference
-            rsp.v[vt]._64[0] = lswap(mem.dmem._64[(addr >> 3) + 1]);
-            rsp.v[vt]._64[1] = lswap(mem.dmem._64[(addr >> 3)]);
+            overshoot := addr % 16;
+            val := U128.{lswap(mem.dmem._64[(addr >> 3) + 1]), lswap(mem.dmem._64[(addr >> 3)])};
+            val >>= cast(u8,overshoot * 8);
+            rsp.v[vt]._64[0] = val.low;
+            rsp.v[vt]._64[1] = val.high;
         case;
             assert(false, "TODO %", opcode);
     }
@@ -269,7 +386,10 @@ rsp_swc2 :: (ins: u32) {
     opcode := (rest >> 11) & 0x1f;
     element := (rest >> 7) & 0xf;
     offset := rest & 0x7f;
+    offset = sign_extend_1(offset << 1) >> 1;
     if opcode == {
+        case 0;
+            mem.dmem._8[rsp_reg_src(base) + offset] = rsp.v[vt]._8[element];
         case 1;
             mem.dmem._16[(rsp_reg_src(base) >> 1) + offset] = hswap(rsp.v[vt]._16[element >> 1]);
         case 3;

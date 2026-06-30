@@ -137,11 +137,22 @@ cpu_dsra32 :: (ins: u32) {
     cpu_reg_dst(rd, cast,no_check(u64, cast,no_check(s64, cpu_reg_src(rt)) >> (32 + sa)));
 }
 
+cpu_daddiu :: (ins: u32) {
+    rs, rt, imm := decode_i(ins);
+    cpu_reg_dst(rt, (cpu_reg_src(rs) + sign_extend_2(imm)));
+}
+
 cpu_dmultu :: (ins: u32) {
     rs, rt := decode_r(ins);
     hi, lo := multiply_64bits_with_overflow(cpu_reg_src(rs), cpu_reg_src(rt));
     cpu.lo = lo;
     cpu.hi = hi;
+}
+
+cpu_ddiv :: (ins: u32) {
+    rs, rt := decode_r(ins);
+    cpu.lo = cpu_reg_src(rs) / cpu_reg_src(rt);
+    cpu.hi = cpu_reg_src(rs) % cpu_reg_src(rt);
 }
 
 cpu_ddivu :: (ins: u32) {
