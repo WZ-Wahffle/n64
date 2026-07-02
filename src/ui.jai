@@ -794,9 +794,369 @@ memory_window :: () {
     im.End();
 }
 
+visualize_display_list :: (addr: u32, end: u32 = 0, segs: *[16]u32) {
+    while addr != end {
+        val := lswap(mem.ram._64[addr >> 3]);
+        cat := val >> 62;
+        if cat == {
+            case 0;
+                cmd := (val >> 56);
+                if cmd == {
+                    case 1;
+                        // G_MTX
+                        dst := (val >> 48) & 0xff;
+                        ptr := val & 0xffffffff;
+                        im.Text("gSPMatrix(0x%, % | % | %)", formatInt(ptr, 16, 8),
+                            ifx (dst & 0x1) != 0 "G_MTX_PROJECTION" else "G_MTX_MODELVIEW",
+                            ifx (dst & 0x2) != 0 "G_MTX_LOAD" else "G_MTX_MUL",
+                            ifx (dst & 0x4) != 0 "G_MTX_PUSH" else "G_MTX_NOPUSH"
+                        );
+                    case 3;
+                        // G_MOVEMEM
+                        dst := (val >> 48) & 0xff;
+                        len := (val >> 32) & 0xffff;
+                        ptr := val & 0xffffffff;
+                        if dst == {
+                            case 0x80;
+                                im.Text_CFormat("gSPViewport(0x%08x)", ptr);
+                            case;
+                                assert(false, "Unrecognized G_MOVEMEM instruction %", formatInt(dst, 16));
+                        }
+                    case 4;
+                        // G_VTX
+                        vtx_addr := val & 0xffffffff;
+                        cnt := ((val >> 32) & 0xffff) / 16;
+                        starting_index := (val >> 48) & 0xf;
+                        im.Text_CFormat("gSPVertex(0x%08x, %d, %d)", vtx_addr, cnt, starting_index);
+                    case 6;
+                        // G_DL
+                        no_push := (val >> 48) & 0xff;
+                        ptr := val & 0xffffffff;
+                        if no_push {
+                            if im.CollapsingHeader(tprint("gSPBranchList(0x%)\0", formatInt(ptr, 16, 8)).data, .OpenOnArrow) {
+                                im.Indent();
+                                new_addr : u32 = xx (segs.*[(ptr >> 24) & 0xf] + (ptr & 0xffffff));
+                                visualize_display_list(new_addr, segs=segs);
+                                im.Unindent();
+                            }
+                            return;
+                        } else {
+                            if im.CollapsingHeader(tprint("gSPDisplayList(0x%)\0", formatInt(ptr, 16, 8)).data, .OpenOnArrow) {
+                                im.Indent();
+                                new_addr : u32 = xx (segs.*[(ptr >> 24) & 0xf] + (ptr & 0xffffff));
+                                visualize_display_list(new_addr, segs=segs);
+                                im.Unindent();
+                            }
+                        }
+                    case;
+                        assert(false, "Unrecognized RSP instruction %", formatInt(cmd, 16));
+                }
+            case 2;
+                cmd := val >> 56;
+                if cmd == {
+                    case 180;
+                        word := val & 0xffffffff;
+                        next_val := lswap(mem.ram._64[(addr + 8) >> 3]);
+                        next_cmd := next_val >> 56;
+                        if next_cmd == 181 {
+                            assert(false, "TODO rectangles % %", formatInt(val, 16), formatInt(next_val, 16));
+                        } else {
+                            im.Text_CFormat("gSPPerspNormalize(0x%04x)", word);
+                        }
+                    case 182; #through;
+                        // G_CLEARGEOMETRYMODE
+                    case 183;
+                        // G_SETGEOMETRYMODE
+                        word := val & 0xffffffff;
+                        sb: String_Builder;
+                        if word & 0x1 != 0 append(*sb, "G_ZBUFFER | ");
+                        if word & 0x2 != 0 append(*sb, "G_TEXTURE_ENABLE | ");
+                        if word & 0x4 != 0 append(*sb, "G_SHADE | ");
+                        if word & 0x200 != 0 append(*sb, "G_SHADING_SMOOTH | ");
+                        if word & 0x1000 != 0 append(*sb, "G_CULL_FRONT | ");
+                        if word & 0x2000 != 0 append(*sb, "G_CULL_BACK | ");
+                        if word & 0x10000 != 0 append(*sb, "G_FOG | ");
+                        if word & 0x20000 != 0 append(*sb, "G_LIGHTING | ");
+                        if word & 0x40000 != 0 append(*sb, "G_TEXTURE_GEN | ");
+                        if word & 0x80000 != 0 append(*sb, "G_TEXTURE_GEN_LINEAR | ");
+                        if word & 0x100000 != 0 append(*sb, "G_LOD | ");
+                        // a very silly hack to get rid of the last |,
+                        // but it's simpler than any alternative
+                        get_current_buffer(*sb).count -= 3;
+                        str := builder_to_string(*sb);
+                        get_current_buffer(*sb).count += 3;
+                        if cmd == 182 {
+                            im.Text("gSPClearGeometryMode(%)", str);
+                        } else {
+                            im.Text("gSPSetGeometryMode(%)", str);
+                        }
+
+                        free_buffers(*sb);
+                        free(str);
+                    case 184;
+                        // G_ENDDL
+                        im.Text("gSPEndDisplayList()");
+                        return;
+                    case 185;
+                        // G_SETOTHERMODE_L
+                        sft := (val >> 40) & 0xff;
+                        data := val & 0xffffffff;
+                        if sft == {
+                            case 0;
+                                im.Text("gDPSetAlphaCompare(%)", string.["G_AC_NONE", "G_AC_THRESHOLD", "!", "G_AC_DITHER"][data >> sft]);
+                            case 2;
+                                im.Text("gDPSetDepthSource(%)", string.["G_ZS_PIXEL", "G_ZS_PRIM"][data >> sft]);
+                            case 3;
+                                im.Text_CFormat("gDPSetRenderMode(0x%08x)", data >> sft);
+                            case;
+                                assert(false, "Unrecognized G_SETOTHERMODE_L instruction %", sft);
+                        }
+                    case 186;
+                        // G_SETOTHERMODE_H
+                        sft := (val >> 40) & 0xff;
+                        data := val & 0xffffffff;
+                        if sft == {
+                            case 6;
+                                im.Text("gDPSetColorDither(%)", string.["G_CD_MAGICSQ", "G_CD_BAYER", "G_CD_NOISE", "G_CD_DISABLE"][data >> sft]);
+                            case 8;
+                                im.Text("gDPSetCombineKey(%)", string.["G_CK_NONE", "G_CK_KEY"][data >> sft]);
+                            case 9;
+                                im.Text("gDPSetTextureConvert(%)", string.["G_TC_CONV", "!", "!", "!", "!", "G_TC_FILTCONV", "G_TC_FILT"][data >> sft]);
+                            case 12;
+                                im.Text("gDPSetTextureFilter(%)", string.["G_TF_POINT", "!", "G_TF_BILERP", "G_TF_AVERAGE"][data >> sft]);
+                            case 14;
+                                im.Text("gDPSetTextureLUT(%)", string.["G_TT_NONE", "!", "G_TT_RGBA16", "G_TT_IA16"][data >> sft]);
+                            case 16;
+                                im.Text("gDPSetTextureLOD(%)", string.["G_TL_TILE", "G_TL_LOD"][data >> sft]);
+                            case 17;
+                                im.Text("gDPSetTextureDetail(%)", string.["G_TD_CLAMP", "G_TD_SHARPEN", "G_TD_DETAIL"][data >> sft]);
+                            case 19;
+                                im.Text("gDPSetTexturePersp(%)", string.["G_TP_NONE", "G_TP_PERSP"][data >> sft]);
+                            case 20;
+                                im.Text("gDPSetCycleType(%)", string.["G_CYC_1CYCLE", "G_CYC_2CYCLE", "G_CYC_COPY", "G_CYC_FILL"][data >> sft]);
+                            case 23;
+                                im.Text("gDPPipelineMode(%)", string.["G_PM_NPRIMITIVE", "G_PM_1PRIMITIVE"][data >> sft]);
+                            case;
+                                assert(false, "Unrecognized G_SETOTHERMODE_H instruction %", sft);
+                        }
+                    case 187;
+                        // G_TEXTURE
+                        level := (val >> 43) & 0b111;
+                        tile := (val >> 40) & 0b111;
+                        on := (val >> 32) & 0xff;
+                        s := (val >> 16) & 0xffff;
+                        t := val & 0xffff;
+                        im.Text("gSPTexture(%, %, %, %, %)", s, t, level, string.["G_TX_RENDERTILE", "1", "2", "3", "4", "5", "6", "G_TX_LOADTILE"][tile], string.["G_OFF", "G_ON"][on]);
+                    case 188;
+                        // G_MOVEWORD
+                        offset := (val >> 40) & 0xffff;
+                        index := (val >> 32) & 0xff;
+                        data := val & 0xffffffff;
+                        if index == {
+                            case 2;
+                                im.Text("gSPNumLights(NUMLIGHTS_%)", (data - 0x80000000) / 32 - 1);
+                            case 6;
+                                segs.*[offset / 4] = xx data;
+                                im.Text_CFormat("gSPSegment(%d, 0x%08x)", offset / 4, data);
+                            case;
+                                assert(false, "Unrecognized G_MOVEWORD instruction %", index);
+                        }
+                    case 189;
+                        // G_POPMTX
+                        flags := val & 0xffffffff;
+                        im.Text("gSPPopMatrix(%)", string.["G_MTX_PROJECTION", "G_MTX_MODELVIEW"][flags]);
+                    case 191;
+                        // G_TRI1
+                        flag := (val >> 24) & 0xff;
+                        v0 := ((val >> 16) & 0xff) / 10;
+                        v1 := ((val >> 8) & 0xff) / 10;
+                        v2 := (val & 0xff) / 10;
+
+                        val2 := lswap(mem.ram._64[(addr + 8) >> 3]);
+                        cmd2 := val2 >> 56;
+                        if cmd2 == 191 {
+                            flag2 := (val2 >> 24) & 0xff;
+                            v02 := ((val2 >> 16) & 0xff) / 10;
+                            v12 := ((val2 >> 8) & 0xff) / 10;
+                            v22 := (val2 & 0xff) / 10;
+                            im.Text_CFormat("gSP2Triangles(%d, %d, %d, 0x%x, %d, %d, %d, 0x%x)",
+                                v0, v1, v2, flag, v02, v12, v22, flag2
+                            );
+                            addr += 8;
+                        } else {
+                            im.Text_CFormat("gSP1Triangle(%d, %d, %d, 0x%x)", v0, v1, v2, flag);
+                        }
+                    case;
+                        assert(false, "Unrecognized RSP instruction %", cmd);
+                }
+            case 3;
+                cmd := val >> 56;
+                if cmd == {
+                    case 0xe6;
+                        // G_RDPLOADSYNC
+                        im.Text("gDPLoadSync()");
+                    case 0xe7;
+                        // G_RDPPIPESYNC
+                        im.Text("gDPPipeSync()");
+                    case 0xe8;
+                        // G_RDPTILESYNC
+                        im.Text("gDPTileSync()");
+                    case 0xe9;
+                        // G_RDPFULLSYNC
+                        im.Text("gDPFullSync()");
+                    case 0xed;
+                        // G_SETSCISSOR
+                        lry := val & 0xfff;
+                        lrx := (val >> 12) & 0xfff;
+                        mode := (val >> 24) & 0b11;
+                        uly := (val >> 32) & 0xfff;
+                        ulx := (val >> 44) & 0xfff;
+                        im.Text("gDPSetScissor(%, %, %, %, %)", string.["G_SC_NON_INTERLACE", "!", "G_SC_EVEN_INTERLACE", "G_SC_ODD_INTERLACE"][mode], ulx, uly, lrx, lry);
+                    case 0xf2;
+                        // G_SETTILESIZE
+                        lrt := val & 0xfff;
+                        lrs := (val >> 12) & 0xfff;
+                        tile := (val >> 24) & 0x7;
+                        ult := (val >> 32) & 0xfff;
+                        uls := (val >> 44) & 0xfff;
+                        im.Text("gDPSetTileSize(%, %, %, %, %)", tile, uls, ult, lrs, lrt);
+                    case 0xf3;
+                        // G_LOADBLOCK
+                        dxt := val & 0xfff;
+                        lrs := (val >> 12) & 0xfff;
+                        tile := (val >> 24) & 0x7;
+                        ult := (val >> 32) & 0xfff;
+                        uls := (val >> 44) & 0xfff;
+                        im.Text("gDPLoadBlock(%, %, %, %, %)", tile, uls, ult, lrs, dxt);
+                    case 0xf5;
+                        // G_SETTILE
+                        shifts := val & 0xf;
+                        masks := (val >> 4) & 0xf;
+                        cms := (val >> 8) & 0x3;
+                        shiftt := (val >> 10) & 0xf;
+                        maskt := (val >> 14) & 0xf;
+                        cmt := (val >> 18) & 0x3;
+                        palette := (val >> 20) & 0xf;
+                        tile := (val >> 24) & 0x7;
+                        tmem := (val >> 32) & 0x1ff;
+                        line := (val >> 41) & 0x1ff;
+                        siz := (val >> 51) & 0x3;
+                        fmt := (val >> 53) & 0x7;
+                        im.Text("gDPSetTile(%, %, %, %, %, %, %, %, %, %, %, %)",
+                            string.["G_IM_FMT_RGBA", "G_IM_FMT_YUV", "G_IM_FMT_CI", "G_IM_FMT_IA", "G_IM_FMT_I"][fmt],
+                            string.["G_IM_SIZ_4b", "G_IM_SIZ_8b", "G_IM_SIZ_16b", "G_IM_SIZ_32b"][siz],
+                            line, tmem, tile, palette,
+                            string.["G_TX_MIRROR", "G_TX_NOMIRROR", "G_TX_WRAP", "G_TX_CLAMP"][cmt],
+                            maskt, shiftt,
+                            string.["G_TX_MIRROR", "G_TX_NOMIRROR", "G_TX_WRAP", "G_TX_CLAMP"][cms],
+                            masks, shifts,
+                        );
+                    case 0xf6;
+                        // G_FILLRECT
+                        uly := (val >> 2) & 0x3ff;
+                        ulx := (val >> 14) & 0x3ff;
+                        lry := (val >> 34) & 0x3ff;
+                        lrx := (val >> 46) & 0x3ff;
+                        im.Text("gDPFillRectangle(%, %, %, %)", ulx, uly, lrx, lry);
+                    case 0xf7;
+                        // G_SETFILLCOLOR
+                        ptr := val & 0xffffffff;
+                        im.Text_CFormat("gDPSetFillColor(0x%08x)", ptr);
+                    case 0xfc;
+                        // G_SETCOMBINE
+                        a0 := (val >> 52) & 0xf;
+                        c0 := (val >> 47) & 0x1f;
+                        Aa0 := (val >> 44) & 0x7;
+                        Ac0 := (val >> 41) & 0x7;
+                        a1 := (val >> 37) & 0xf;
+                        c1 := (val >> 32) & 0x1f;
+
+                        b0 := (val >> 28) & 0xf;
+                        b1 := (val >> 24) & 0xf;
+                        Aa1 := (val >> 21) & 0x7;
+                        Ac1 := (val >> 18) & 0x7;
+                        d0 := (val >> 15) & 0x7;
+                        Ab0 := (val >> 12) & 0x7;
+                        Ad0 := (val >> 9) & 0x7;
+                        d1 := (val >> 6) & 0x7;
+                        Ab1 := (val >> 3) & 0x7;
+                        Ad1 := val & 0x7;
+
+                        color_a :: string.[
+                            "COMBINED", "TEXEL0", "TEXEL1", "PRIMITIVE",
+                            "SHADE", "ENVIRONMENT", "1", "NOISE",
+                            "0", "0", "0", "0", "0", "0", "0", "0"
+                        ];
+                        color_b :: string.[
+                            "COMBINED", "TEXEL0", "TEXEL1", "PRIMITIVE",
+                            "SHADE", "ENVIRONMENT", "CENTER", "K4",
+                            "0", "0", "0", "0", "0", "0", "0", "0"
+                        ];
+                        color_c :: string.[
+                            "COMBINED", "TEXEL0", "TEXEL1", "PRIMITIVE",
+                            "SHADE", "ENVIRONMENT", "SCALE", "COMBINED_ALPHA",
+                            "TEXEL0_ALPHA", "TEXEL1_ALPHA", "PRIMITIVE_ALPHA", "SHADE_ALPHA",
+                            "ENV_ALPHA", "LOD_FRACTION", "PRIM_LOD_FRAC", "K5",
+                            "0", "0", "0", "0", "0", "0", "0", "0",
+                            "0", "0", "0", "0", "0", "0", "0", "0"
+                        ];
+                        color_d :: string.[
+                            "COMBINED", "TEXEL0", "TEXEL1", "PRIMITIVE",
+                            "SHADE", "ENVIRONMENT", "1", "0"
+                        ];
+                        alpha_abd :: string.[
+                            "COMBINED_ALPHA", "TEXEL0_ALPHA", "TEXEL1_ALPHA", "PRIMITIVE_ALPHA",
+                            "SHADE_ALPHA", "ENV_ALPHA", "1", "0"
+                        ];
+                        alpha_c :: string.[
+                            "LOD_FRACTION", "TEXEL0_ALPHA", "TEXEL1_ALPHA", "PRIMITIVE_ALPHA",
+                            "SHADE_ALPHA", "ENV_ALPHA", "PRIM_LOD_FRAC", "0"
+                        ];
+                        im.Text("gDPSetCombineMode(%, %, %, %, %, %, %, %, %, %, %, %, %, %, %, %)",
+                            color_a[a0], color_b[b0], color_c[c0], color_d[d0],
+                            alpha_abd[Aa0], alpha_abd[Ab0], alpha_abd[Ac0], alpha_c[Ad0],
+                            color_a[a1], color_b[b1], color_c[c1], color_d[d1],
+                            alpha_abd[Aa1], alpha_abd[Ab1], alpha_abd[Ac1], alpha_c[Ad1]
+                        );
+                    case 0xfd;
+                        // G_SETTIMG
+                        ptr := val & 0xffffffff;
+                        fmt := (val >> 53) & 0x3;
+                        size := (val >> 51) & 0x3;
+                        width := ((val >> 32) & 0xfff) + 1;
+                        im.Text("gDPSetTextureImage(%, %, %, 0x%)",
+                            string.["G_IM_FMT_RGBA", "G_IM_FMT_YUV", "G_IM_FMT_CI", "G_IM_FMT_IA", "G_IM_FMT_I"][fmt],
+                            string.["G_IM_SIZ_4b", "G_IM_SIZ_8b", "G_IM_SIZ_16b", "G_IM_SIZ_32b"][size],
+                            width, formatInt(ptr, 16, 8)
+                        );
+                    case 0xfe;
+                        // G_SETZIMG
+                        ptr := val & 0xffffffff;
+                        im.Text_CFormat("gDPSetDepthImage(0x%08x)", ptr);
+                    case 0xff;
+                        // G_SETCIMG
+                        ptr := val & 0xffffffff;
+                        fmt := (val >> 53) & 0x7;
+                        size := (val >> 51) & 0b11;
+                        width := ((val >> 32) & 0xfff) + 1;
+                        im.Text("gDPSetColorImage(%, %, %, 0x%)",
+                            string.["G_IM_FMT_RGBA", "G_IM_FMT_YUV", "G_IM_FMT_CI", "G_IM_FMT_IA", "G_IM_FMT_I"][fmt],
+                            string.["G_IM_SIZ_4b", "G_IM_SIZ_8b", "G_IM_SIZ_16b", "G_IM_SIZ_32b"][size],
+                            width, formatInt(ptr, 16, 8)
+                        );
+                    case;
+                        assert(false, "Unrecognized RSP instruction %", cmd);
+                }
+            case;
+                assert(false, "faulty RSP instruction 0x%", formatInt(val, 16, 16));
+        }
+        addr += 8;
+    }
+}
+
 display_list_select_rdp := false;
 display_list_window :: () {
-    im.Begin("displaylist");
+    im.Begin("displaylist", null, .HorizontalScrollbar);
     if im.BeginTabBar("##dltabbar") {
         if im.BeginTabItem("RSP") {
             start := wswap(mem.dmem._32[(0xfc0 + 0x30) >> 2]);
@@ -809,269 +1169,8 @@ display_list_window :: () {
 
             addr := start;
 
-            if type == 1 while addr != end {
-                val := lswap(mem.ram._64[addr >> 3]);
-                cat := val >> 62;
-                if cat == {
-                    case 0;
-                        cmd := (val >> 56);
-                        if cmd == {
-                            case 1;
-                                // G_MTX
-                                dst := (val >> 48) & 0xff;
-                                ptr := val & 0xffffffff;
-                                im.Text("gSPMatrix(0x%, % | % | %)", formatInt(ptr, 16, 8),
-                                    ifx (dst & 0x1) != 0 "G_MTX_PROJECTION" else "G_MTX_MODELVIEW",
-                                    ifx (dst & 0x2) != 0 "G_MTX_LOAD" else "G_MTX_MUL",
-                                    ifx (dst & 0x4) != 0 "G_MTX_PUSH" else "G_MTX_NOPUSH"
-                                );
-                            case 3;
-                                // G_MOVEMEM
-                                dst := (val >> 48) & 0xff;
-                                len := (val >> 32) & 0xffff;
-                                ptr := val & 0xffffffff;
-                                if dst == {
-                                    case 0x80;
-                                        im.Text_CFormat("gSPViewport(0x%08x)", ptr);
-                                    case;
-                                        assert(false, "Unrecognized G_MOVEMEM instruction %", formatInt(dst, 16));
-                                }
-                            case 4;
-                                // G_VTX
-                                vtx_addr := val & 0xffffffff;
-                                cnt := ((val >> 32) & 0xffff) / 16;
-                                starting_index := (val >> 48) & 0xf;
-                                im.Text_CFormat("gSPVertex(0x%08x, %d, %d", vtx_addr, cnt, starting_index);
-                            case 6;
-                                // G_DL
-                                no_push := (val >> 48) & 0xff;
-                                ptr := val & 0xffffffff;
-                                if no_push {
-                                    im.Text_CFormat("gSPBranchList(0x%08x)", ptr);
-                                } else {
-                                    im.Text_CFormat("gSPDisplayList(0x%08x)", ptr);
-                                }
-                            case;
-                                assert(false, "Unrecognized RSP instruction %", formatInt(cmd, 16));
-                        }
-                    case 2;
-                        cmd := val >> 56;
-                        if cmd == {
-                            case 180;
-                                word := val & 0xffffffff;
-                                next_val := lswap(mem.ram._64[(addr + 8) >> 3]);
-                                next_cmd := next_val >> 56;
-                                if next_cmd == 181 {
-                                    assert(false, "TODO rectangles % %", formatInt(val, 16), formatInt(next_val, 16));
-                                } else {
-                                    im.Text_CFormat("gSPPerspNormalize(0x%04x)", word);
-                                }
-                            case 182; #through;
-                                // G_CLEARGEOMETRYMODE
-                            case 183;
-                                // G_SETGEOMETRYMODE
-                                word := val & 0xffffffff;
-                                sb: String_Builder;
-                                if word & 0x1 != 0 append(*sb, "G_ZBUFFER | ");
-                                if word & 0x2 != 0 append(*sb, "G_TEXTURE_ENABLE | ");
-                                if word & 0x4 != 0 append(*sb, "G_SHADE | ");
-                                if word & 0x200 != 0 append(*sb, "G_SHADING_SMOOTH | ");
-                                if word & 0x1000 != 0 append(*sb, "G_CULL_FRONT | ");
-                                if word & 0x2000 != 0 append(*sb, "G_CULL_BACK | ");
-                                if word & 0x10000 != 0 append(*sb, "G_FOG | ");
-                                if word & 0x20000 != 0 append(*sb, "G_LIGHTING | ");
-                                if word & 0x40000 != 0 append(*sb, "G_TEXTURE_GEN | ");
-                                if word & 0x80000 != 0 append(*sb, "G_TEXTURE_GEN_LINEAR | ");
-                                if word & 0x100000 != 0 append(*sb, "G_LOD | ");
-                                // a very silly hack to get rid of the last |,
-                                // but it's simpler than any alternative
-                                get_current_buffer(*sb).count -= 3;
-                                str := builder_to_string(*sb);
-                                get_current_buffer(*sb).count += 3;
-                                if cmd == 182 {
-                                    im.Text("gSPClearGeometryMode(%)", str);
-                                } else {
-                                    im.Text("gSPSetGeometryMode(%)", str);
-                                }
-
-                                free_buffers(*sb);
-                                free(str);
-                            case 184;
-                                // G_ENDDL
-                                im.Text("gSPEndDisplayList()");
-                            case 185;
-                                // G_SETOTHERMODE_L
-                                sft := (val >> 40) & 0xff;
-                                data := val & 0xffffffff;
-                                if sft == {
-                                    case 0;
-                                        im.Text("gDPSetAlphaCompare(%)", string.["G_AC_NONE", "G_AC_THRESHOLD", "!", "G_AC_DITHER"][data >> sft]);
-                                    case 2;
-                                        im.Text("gDPSetDepthSource(%)", string.["G_ZS_PIXEL", "G_ZS_PRIM"][data >> sft]);
-                                    case 3;
-                                        im.Text_CFormat("gDPSetRenderMode(0x%08x)", data >> sft);
-                                    case;
-                                        assert(false, "Unrecognized G_SETOTHERMODE_L instruction %", sft);
-                                }
-                            case 186;
-                                // G_SETOTHERMODE_H
-                                sft := (val >> 40) & 0xff;
-                                data := val & 0xffffffff;
-                                if sft == {
-                                    case 6;
-                                        im.Text("gDPSetColorDither(%)", string.["G_CD_MAGICSQ", "G_CD_BAYER", "G_CD_NOISE", "G_CD_DISABLE"][data >> sft]);
-                                    case 8;
-                                        im.Text("gDPSetCombineKey(%)", string.["G_CK_NONE", "G_CK_KEY"][data >> sft]);
-                                    case 9;
-                                        im.Text("gDPSetTextureConvert(%)", string.["G_TC_CONV", "!", "!", "!", "!", "G_TC_FILTCONV", "G_TC_FILT"][data >> sft]);
-                                    case 12;
-                                        im.Text("gDPSetTextureFilter(%)", string.["G_TF_POINT", "!", "G_TF_BILERP", "G_TF_AVERAGE"][data >> sft]);
-                                    case 14;
-                                        im.Text("gDPSetTextureLUT(%)", string.["G_TT_NONE", "!", "G_TT_RGBA16", "G_TT_IA16"][data >> sft]);
-                                    case 16;
-                                        im.Text("gDPSetTextureLOD(%)", string.["G_TL_TILE", "G_TL_LOD"][data >> sft]);
-                                    case 17;
-                                        im.Text("gDPSetTextureDetail(%)", string.["G_TD_CLAMP", "G_TD_SHARPEN", "G_TD_DETAIL"][data >> sft]);
-                                    case 19;
-                                        im.Text("gDPSetTexturePersp(%)", string.["G_TP_NONE", "G_TP_PERSP"][data >> sft]);
-                                    case 20;
-                                        im.Text("gDPSetCycleType(%)", string.["G_CYC_1CYCLE", "G_CYC_2CYCLE", "G_CYC_COPY", "G_CYC_FILL"][data >> sft]);
-                                    case 23;
-                                        im.Text("gDPPipelineMode(%)", string.["G_PM_NPRIMITIVE", "G_PM_1PRIMITIVE"][data >> sft]);
-                                    case;
-                                        assert(false, "Unrecognized G_SETOTHERMODE_H instruction %", sft);
-                                }
-                            case 187;
-                                // G_TEXTURE
-                                level := (val >> 43) & 0b111;
-                                tile := (val >> 40) & 0b111;
-                                on := (val >> 32) & 0xff;
-                                s := (val >> 16) & 0xffff;
-                                t := val & 0xffff;
-                                im.Text("gSPTexture(%, %, %, %, %)", s, t, level, string.["G_TX_RENDERTILE", "1", "2", "3", "4", "5", "6", "G_TX_LOADTILE"][tile], string.["G_OFF", "G_ON"][on]);
-                            case 188;
-                                // G_MOVEWORD
-                                offset := (val >> 40) & 0xffff;
-                                index := (val >> 32) & 0xff;
-                                data := val & 0xffffffff;
-                                if index == {
-                                    case 2;
-                                        im.Text("gSPNumLights(NUMLIGHTS_%)", (data - 0x80000000) / 32 - 1);
-                                    case 6;
-                                        im.Text_CFormat("gSPSegment(0x%04x, 0x%08x)", offset / 4, data);
-                                    case;
-                                        assert(false, "Unrecognized G_MOVEWORD instruction %", index);
-                                }
-                            case;
-                                assert(false, "Unrecognized RSP instruction %", cmd);
-                        }
-                    case 3;
-                        cmd := val >> 56;
-                        if cmd == {
-                            case 0xe7;
-                                // G_RDPPIPESYNC
-                                im.Text("gDPPipeSync()");
-                            case 0xe9;
-                                // G_RDPFULLSYNC
-                                im.Text("gDPFullSync()");
-                            case 0xed;
-                                // G_SETSCISSOR
-                                lry := val & 0xfff;
-                                lrx := (val >> 12) & 0xfff;
-                                mode := (val >> 24) & 0b11;
-                                uly := (val >> 32) & 0xfff;
-                                ulx := (val >> 44) & 0xfff;
-                                im.Text("gDPSetScissor(%, %, %, %, %)", string.["G_SC_NON_INTERLACE", "!", "G_SC_EVEN_INTERLACE", "G_SC_ODD_INTERLACE"][mode], ulx, uly, lrx, lry);
-                            case 0xf6;
-                                // G_FILLRECT
-                                uly := (val >> 2) & 0x3ff;
-                                ulx := (val >> 14) & 0x3ff;
-                                lry := (val >> 34) & 0x3ff;
-                                lrx := (val >> 46) & 0x3ff;
-                                im.Text("gDPFillRectangle(%, %, %, %)", ulx, uly, lrx, lry);
-                            case 0xf7;
-                                // G_SETFILLCOLOR
-                                ptr := val & 0xffffffff;
-                                im.Text_CFormat("gDPSetFillColor(0x%08x)", ptr);
-                            case 0xfc;
-                                // G_SETCOMBINE
-                                a0 := (val >> 52) & 0xf;
-                                c0 := (val >> 47) & 0x1f;
-                                Aa0 := (val >> 44) & 0x7;
-                                Ac0 := (val >> 41) & 0x7;
-                                a1 := (val >> 37) & 0xf;
-                                c1 := (val >> 32) & 0x1f;
-
-                                b0 := (val >> 28) & 0xf;
-                                b1 := (val >> 24) & 0xf;
-                                Aa1 := (val >> 21) & 0x7;
-                                Ac1 := (val >> 18) & 0x7;
-                                d0 := (val >> 15) & 0x7;
-                                Ab0 := (val >> 12) & 0x7;
-                                Ad0 := (val >> 9) & 0x7;
-                                d1 := (val >> 6) & 0x7;
-                                Ab1 := (val >> 3) & 0x7;
-                                Ad1 := val & 0x7;
-
-                                color_a :: string.[
-                                    "COMBINED", "TEXEL0", "TEXEL1", "PRIMITIVE",
-                                    "SHADE", "ENVIRONMENT", "1", "NOISE",
-                                    "0", "0", "0", "0", "0", "0", "0", "0"
-                                ];
-                                color_b :: string.[
-                                    "COMBINED", "TEXEL0", "TEXEL1", "PRIMITIVE",
-                                    "SHADE", "ENVIRONMENT", "CENTER", "K4",
-                                    "0", "0", "0", "0", "0", "0", "0", "0"
-                                ];
-                                color_c :: string.[
-                                    "COMBINED", "TEXEL0", "TEXEL1", "PRIMITIVE",
-                                    "SHADE", "ENVIRONMENT", "SCALE", "COMBINED_ALPHA",
-                                    "TEXEL0_ALPHA", "TEXEL1_ALPHA", "PRIMITIVE_ALPHA", "SHADE_ALPHA",
-                                    "ENV_ALPHA", "LOD_FRACTION", "PRIM_LOD_FRAC", "K5",
-                                    "0", "0", "0", "0", "0", "0", "0", "0",
-                                    "0", "0", "0", "0", "0", "0", "0", "0"
-                                ];
-                                color_d :: string.[
-                                    "COMBINED", "TEXEL0", "TEXEL1", "PRIMITIVE",
-                                    "SHADE", "ENVIRONMENT", "1", "0"
-                                ];
-                                alpha_abd :: string.[
-                                    "COMBINED_ALPHA", "TEXEL0_ALPHA", "TEXEL1_ALPHA", "PRIMITIVE_ALPHA",
-                                    "SHADE_ALPHA", "ENV_ALPHA", "1", "0"
-                                ];
-                                alpha_c :: string.[
-                                    "LOD_FRACTION", "TEXEL0_ALPHA", "TEXEL1_ALPHA", "PRIMITIVE_ALPHA",
-                                    "SHADE_ALPHA", "ENV_ALPHA", "PRIM_LOD_FRAC", "0"
-                                ];
-                                im.Text("gDPSetCombineMode(%, %, %, %, %, %, %, %, %, %, %, %, %, %, %, %)",
-                                    color_a[a0], color_b[b0], color_c[c0], color_d[d0],
-                                    alpha_abd[Aa0], alpha_abd[Ab0], alpha_abd[Ac0], alpha_c[Ad0],
-                                    color_a[a1], color_b[b1], color_c[c1], color_d[d1],
-                                    alpha_abd[Aa1], alpha_abd[Ab1], alpha_abd[Ac1], alpha_c[Ad1]
-                                );
-                            case 0xfe;
-                                // G_SETZIMG
-                                ptr := val & 0xffffffff;
-                                im.Text_CFormat("gDPSetDepthImage(0x%08x)", ptr);
-                            case 0xff;
-                                // G_SETCIMG
-                                ptr := val & 0xffffffff;
-                                fmt := (val >> 53) & 0x7;
-                                size := (val >> 51) & 0b11;
-                                width := ((val >> 32) & 0xfff) + 1;
-                                im.Text("gDPSetColorImage(%, %, %, 0x%)",
-                                    string.["G_IM_FMT_RGBA", "G_IM_FMT_YUV", "G_IM_FMT_CI", "G_IM_FMT_IA", "G_IM_FMT_I"][fmt],
-                                    string.["G_IM_SIZ_4b", "G_IM_SIZ_8b", "G_IM_SIZ_16b", "G_IM_SIZ_32b"][size],
-                                    width, formatInt(ptr, 16, 8)
-                                );
-                            case;
-                                assert(false, "Unrecognized RSP instruction %", cmd);
-                        }
-                    case;
-                        assert(false, "faulty RSP instruction 0x%", formatInt(val, 16, 16));
-                }
-                addr += 8;
-            }
+            segs := u32.[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            if type == 1 visualize_display_list(addr, end, *segs);
             im.EndTabItem();
         }
         if im.BeginTabItem("RDP") {

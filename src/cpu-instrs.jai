@@ -638,6 +638,15 @@ cpu_cop1 :: (ins: u32) {
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
+            case 6;
+                if fmt == {
+                    case 16;
+                        cpu.fgr[fd].f32 = cpu.fgr[fs].f32;
+                    case 17;
+                        cpu.fgr[fd].f64 = cpu.fgr[fs].f64;
+                    case;
+                        assert(false, "Invalid format %", fmt);
+                }
             case 7;
                 if fmt == {
                     case 16;
