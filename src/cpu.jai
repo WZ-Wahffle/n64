@@ -16,6 +16,7 @@ Cpu :: struct {
 
     bp: [32]u32;
     state := Cpu_State.STOPPED;
+    step_frame := false;
     remaining_cycles := 0.0;
 }
 
@@ -349,6 +350,13 @@ check_interrupts :: () {
             cpu.cp0[Cp0.STATUS] |= 0b10;
             cpu.cp0[Cp0.EPC] = cpu.pc;
             cpu.pc = 0x80000000;
+
+            if cpu.step_frame && (mem.mi._32[Mi.INTR_MASK] & mem.mi._32[Mi.INTR] & xx Mi_Intr_R.DP) != 0 {
+                cpu.step_frame = false;
+                cpu.state = .STOPPED;
+                cpu.remaining_cycles = 0;
+                rsp.remaining_cycles = 0;
+            }
         }
     }
 }

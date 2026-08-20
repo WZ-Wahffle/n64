@@ -157,6 +157,7 @@ regs := string.["r0", "at", "v0", "v1", "a0", "a1", "a2", "a3",
     "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7",
     "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"];
 
+cpu_window_float_wide := false;
 cpu_window :: () {
     im.Begin("cpu");
     im.SeparatorText("Control");
@@ -169,11 +170,16 @@ cpu_window :: () {
     }
     im.SameLine();
     if im.Button("Step") {
-        cpu.state = .RUNNING;
+        cpu.state = .STARTED;
         step(-cpu.remaining_cycles + 1);
         cpu.state = .STOPPED;
         if cpu_disasm_state.follow cpu_disasm_state.scroll_state = cpu.pc;
         if rsp_disasm_state.follow rsp_disasm_state.scroll_state = rsp.pc | 0x84001000;
+    }
+    im.SameLine();
+    if im.Button("Step Frame") {
+        cpu.state = .STARTED;
+        cpu.step_frame = true;
     }
     im.SeparatorText("Registers");
     im.Text_CFormat("PC: 0x%08x", cpu.pc);
@@ -181,6 +187,18 @@ cpu_window :: () {
         for 0..15 {
                 im.Text_CFormat("%s: 0x%016llx %s: 0x%016llx", regs[it*2].data, cpu.gpr[it*2], regs[it*2+1].data, cpu.gpr[it*2+1]);
             }
+        im.TreePop();
+    }
+    if im.TreeNode("Float Registers") {
+        if im.Checkbox("wide", *cpu_window_float_wide) {
+            for 0..15 {
+                im.Text_CFormat("f%02d: %016lf f%02d: %016lf", it * 2, cpu.fgr[it * 2].f64, it * 2 + 1, cpu.fgr[it * 2 + 1].f64);
+            }
+        } else {
+            for 0..15 {
+                im.Text_CFormat("f%02d: %016f f%02d: %016f", it * 2, cpu.fgr[it * 2].f32, it * 2 + 1, cpu.fgr[it * 2 + 1].f32);
+            }
+        }
         im.TreePop();
     }
     im.SeparatorText("Coprocessor 0");
@@ -214,6 +232,8 @@ cpu_window :: () {
     im.End();
 }
 
+rsp_vector_register_size_selected : s32 = 0;
+rsp_vector_register_format_selected : s32 = 0;
 rsp_window :: () {
     im.Begin("rsp");
     im.SeparatorText("Control");
@@ -226,11 +246,16 @@ rsp_window :: () {
     }
     im.SameLine();
     if im.Button("Step") {
-        cpu.state = .RUNNING;
+        cpu.state = .STARTED;
         step(-rsp.remaining_cycles + 1);
         cpu.state = .STOPPED;
         if cpu_disasm_state.follow cpu_disasm_state.scroll_state = cpu.pc;
         if rsp_disasm_state.follow rsp_disasm_state.scroll_state = rsp.pc | 0x84001000;
+    }
+    im.SameLine();
+    if im.Button("Step Frame") {
+        cpu.state = .STARTED;
+        cpu.step_frame = true;
     }
     im.SeparatorText("Registers");
     im.Text_CFormat("PC: 0x%08x", rsp.pc);
@@ -238,6 +263,111 @@ rsp_window :: () {
         for 0..15 {
                 im.Text_CFormat("%s: 0x%08x %s: 0x%08x", regs[it*2].data, rsp.gpr[it*2], regs[it*2+1].data, rsp.gpr[it*2+1]);
             }
+        im.TreePop();
+    }
+    if im.TreeNode("Vector Registers") {
+        im.Text("Display Size");
+        im.SameLine();
+        sizes := string.["u8", "s8", "u16", "s16", "u32", "u64"];
+        if im.BeginCombo("##rspregsize", sizes[rsp_vector_register_size_selected].data) {
+            for size, idx : sizes {
+                is_selected := idx == rsp_vector_register_size_selected;
+                if im.Selectable(size.data, is_selected) {
+                    rsp_vector_register_size_selected = xx idx;
+                }
+                if is_selected {
+                    im.SetItemDefaultFocus();
+                }
+            }
+            im.EndCombo();
+        }
+        im.Text("Display Format");
+        im.SameLine();
+        formats := string.["dec", "hex"];
+        if im.BeginCombo("##rspregformat", formats[rsp_vector_register_format_selected].data) {
+            for format, idx : formats {
+                is_selected := idx == rsp_vector_register_format_selected;
+                if im.Selectable(format.data, is_selected) {
+                    rsp_vector_register_format_selected = xx idx;
+                }
+                if is_selected {
+                    im.SetItemDefaultFocus();
+                }
+            }
+            im.EndCombo();
+        }
+
+        old_base := context.print_style.default_format_int.base;
+        if formats[rsp_vector_register_format_selected] == {
+            case "dec";
+                context.print_style.default_format_int.base = 10;
+            case "hex";
+                context.print_style.default_format_int.base = 16;
+        }
+        word_size := s32.[1, 1, 2, 2, 4, 8][rsp_vector_register_size_selected];
+        im.BeginTable("##rspreg", 16 / word_size + 1, .SizingFixedFit);
+        for reg: 0..31 {
+            im.TableNextRow();
+            im.TableNextColumn();
+            im.Text_CFormat("v%02d:", reg);
+            if sizes[rsp_vector_register_size_selected] == {
+                case "u8";
+                    for 0..14 {
+                        im.TableNextColumn();
+                        im.Text("%", rsp.v[reg]._8[it]);
+                    }
+                    im.TableNextColumn();
+                    im.Text("%", rsp.v[reg]._8[15]);
+                case "s8";
+                    for 0..14 {
+                        im.TableNextColumn();
+                        im.Text("%", rsp.v[reg]._8s[it]);
+                    }
+                    im.TableNextColumn();
+                    im.Text("%", rsp.v[reg]._8s[15]);
+                case "u16";
+                    for 0..6 {
+                        im.TableNextColumn();
+                        im.Text("%", rsp.v[reg]._16[it]);
+                    }
+                    im.TableNextColumn();
+                    im.Text("%", rsp.v[reg]._16[7]);
+                case "s16";
+                    for 0..6 {
+                        im.TableNextColumn();
+                        im.Text("%", rsp.v[reg]._16s[it]);
+                    }
+                    im.TableNextColumn();
+                    im.Text("%", rsp.v[reg]._16s[7]);
+                case "u32";
+                    for 0..2 {
+                        im.TableNextColumn();
+                        im.Text("%", rsp.v[reg]._32[it]);
+                    }
+                    im.TableNextColumn();
+                    im.Text("%", rsp.v[reg]._32[3]);
+                case "u64";
+                    im.TableNextColumn();
+                    im.Text("%", rsp.v[reg]._32[0]);
+                    im.TableNextColumn();
+                    im.Text("%", rsp.v[reg]._32[1]);
+            }
+        }
+        im.EndTable();
+        context.print_style.default_format_int.base = old_base;
+        extract_bin :: (arr: [8]bool) -> u8 {
+            ret : u8 = 0;
+            for 0..7 {
+                if arr[it] ret |= xx 1 << it;
+            }
+            return ret;
+        }
+        im.Text_CFormat("Carry: %02x", extract_bin(rsp.carry));
+        im.Text_CFormat("Nonzero: %02x", extract_bin(rsp.nonzero));
+        im.Text_CFormat("GreaterEq: %02x", extract_bin(rsp.greatereq));
+        im.Text_CFormat("LessEq: %02x", extract_bin(rsp.lesseq));
+        im.Text_CFormat("Divin: %08x", rsp.divin);
+        im.Text_CFormat("Divout: %08x", rsp.divout);
         im.TreePop();
     }
     im.End();
@@ -811,6 +941,23 @@ visualize_display_list :: (addr: u32, end: u32 = 0, segs: *[16]u32) {
                             ifx (dst & 0x2) != 0 "G_MTX_LOAD" else "G_MTX_MUL",
                             ifx (dst & 0x4) != 0 "G_MTX_PUSH" else "G_MTX_NOPUSH"
                         );
+                        if im.IsItemHovered() {
+                            im.BeginTooltip();
+                            mtx: [4][4]float32;
+                            new_addr : u32 = xx (segs.*[(ptr >> 24) & 0xf] + (ptr & 0xffffff));
+                            for y: 0..3 {
+                                for x: 0..3 {
+                                    mtx[y][x] = xx cast,no_check(s16,hswap(mem.ram._16[new_addr / 2 + xx (x + 4 * y)]));
+                                    mtx[y][x] += cast(float,hswap(mem.ram._16[new_addr / 2 + xx (x + 4 * y + 16)])) / 65536.0;
+                                }
+                                im.Text_CFormat("%10.5f | %10.5f | %10.5f | %10.5f",
+                                    mtx[y][0],
+                                    mtx[y][1],
+                                    mtx[y][2],
+                                    mtx[y][3]);
+                            }
+                            im.EndTooltip();
+                        }
                     case 3;
                         // G_MOVEMEM
                         dst := (val >> 48) & 0xff;
@@ -1062,6 +1209,13 @@ visualize_display_list :: (addr: u32, end: u32 = 0, segs: *[16]u32) {
                         // G_SETFILLCOLOR
                         ptr := val & 0xffffffff;
                         im.Text_CFormat("gDPSetFillColor(0x%08x)", ptr);
+                    case 0xfb;
+                        // G_SETENVCOLOR
+                        a := val & 0xff;
+                        b := (val >> 8) & 0xff;
+                        g := (val >> 16) & 0xff;
+                        r := (val >> 24) & 0xff;
+                        im.Text("gDPSetEnvColor(%, %, %, %)", r, g, b, a);
                     case 0xfc;
                         // G_SETCOMBINE
                         a0 := (val >> 52) & 0xf;
@@ -1159,6 +1313,10 @@ display_list_window :: () {
     im.Begin("displaylist", null, .HorizontalScrollbar);
     if im.BeginTabBar("##dltabbar") {
         if im.BeginTabItem("RSP") {
+            im.SameLine();
+            im.SetCursorPosX((im.GetCursorPosX()) + (im.GetContentRegionAvail().x) - (im.CalcTextSize("Copy To Clipboard").x + (im.GetStyle().FramePadding.x) * 2));
+            snapshot := im.Button("Copy To Clipboard");
+
             start := wswap(mem.dmem._32[(0xfc0 + 0x30) >> 2]);
             length := wswap(mem.dmem._32[(0xfc0 + 0x34) >> 2]);
             type := wswap(mem.dmem._32[(0xfc0 + 0x0) >> 2]);
@@ -1170,10 +1328,16 @@ display_list_window :: () {
             addr := start;
 
             segs := u32.[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            if snapshot im.LogToClipboard();
             if type == 1 visualize_display_list(addr, end, *segs);
+            if snapshot im.LogFinish();
             im.EndTabItem();
         }
         if im.BeginTabItem("RDP") {
+            im.SameLine();
+            im.SetCursorPosX((im.GetCursorPosX()) + (im.GetContentRegionAvail().x) - (im.CalcTextSize("Copy To Clipboard").x + (im.GetStyle().FramePadding.x) * 2));
+            snapshot := im.Button("Copy To Clipboard");
+
             start := rsp.cp0[Sp.CMD_START];
             end := rsp.cp0[Sp.CMD_END];
             im.Text_CFormat("Display List Start: 0x%08x", start);
@@ -1190,14 +1354,19 @@ display_list_window :: () {
                     return lswap(mem.ram._64[a >> 3]);
                 }
             }
+            if snapshot im.LogToClipboard();
             while addr != end {
                 val := get_val(addr, xbus);
                 idx := (addr - start) / 8;
                 cmd := (val >> 56) & 0x3f;
 
                 if cmd == {
+                    case 0x26;
+                        im.Text("Sync Load");
                     case 0x27;
                         im.Text("Sync Pipe");
+                    case 0x28;
+                        im.Text("Sync Tile");
                     case 0x29;
                         im.Text("Sync Full");
                     case 0x2d;
@@ -1301,6 +1470,69 @@ display_list_window :: () {
                                 im.Unindent();
                             }
                         }
+                    case 0x32;
+                        if im.CollapsingHeader(tprint("Set Tile Size##%\0", idx).data, .OpenOnArrow) {
+                            th := val & 0xfff;
+                            sh := (val >> 12) & 0xfff;
+                            tile := (val >> 24) & 0x7;
+                            tl := (val >> 32) & 0xfff;
+                            sl := (val >> 44) & 0xfff;
+                            im.Indent();
+                            im.Text("Tile: %", tile);
+                            im.Text("Low S: %", sl / 4.0);
+                            im.Text("High S: %", sh / 4.0);
+                            im.Text("Low T: %", tl / 4.0);
+                            im.Text("High T: %", th / 4.0);
+                            im.Unindent();
+                        }
+                    case 0x33;
+                        if im.CollapsingHeader(tprint("Load Block##%\0", idx).data, .OpenOnArrow) {
+                            dxt := val & 0xfff;
+                            sh := (val >> 12) & 0xfff;
+                            tile := (val >> 24) & 0x7;
+                            tl := (val >> 32) & 0xfff;
+                            sl := (val >> 44) & 0xfff;
+                            im.Indent();
+                            im.Text("Tile: %", tile);
+                            im.Text("Low S: %", sl);
+                            im.Text("High S: %", sh);
+                            im.Text("Low T: %", tl);
+                            im.Text("T Increment: %", dxt / 2.0);
+                            im.Unindent();
+                        }
+                    case 0x35;
+                        if im.CollapsingHeader(tprint("Set Tile##%\0", idx).data, .OpenOnArrow) {
+                            shift_s := val & 0xf;
+                            mask_s := (val >> 4) & 0xf;
+                            ms := (val >> 8) & 0x1;
+                            cs := (val >> 9) & 0x1;
+                            shift_t := (val >> 10) & 0xf;
+                            mask_t := (val >> 14) & 0xf;
+                            mt := (val >> 18) & 0x1;
+                            ct := (val >> 19) & 0x1;
+                            palette := (val >> 20) & 0xf;
+                            tile := (val >> 24) & 0x7;
+                            tmem_adrs := (val >> 32) & 0x1ff;
+                            line := (val >> 41) & 0x1ff;
+                            size := (val >> 51) & 0x3;
+                            format := (val >> 53) & 0x7;
+                            im.Indent();
+                            im.Text("Pixel Size: %", string.["4b", "8b", "16b", "32b"][size]);
+                            im.Text("Image Format: %", string.["rgba", "yuv", "color index", "ia", "i"][format]);
+                            im.Text("Size Of Line * 64b: %", line);
+                            im.Text_CFormat("TMEM Address: 0x%03x", tmem_adrs * 8);
+                            im.Text("Tile: %", tile);
+                            im.Text("Palette: %", palette);
+                            im.Text("Clamp T: %", ct);
+                            im.Text("Mirror T: %", mt);
+                            im.Text("Mask T: %", mask_t);
+                            im.Text("Shift T: %", shift_t);
+                            im.Text("Clamp S: %", cs);
+                            im.Text("Mirror S: %", ms);
+                            im.Text("Mask S: %", mask_s);
+                            im.Text("Shift S: %", shift_s);
+                            im.Unindent();
+                        }
                     case 0x36;
                         if im.CollapsingHeader(tprint("Fill Rectangle##%\0", idx).data, .OpenOnArrow) {
                             yh := val & 0xfff;
@@ -1319,6 +1551,19 @@ display_list_window :: () {
                             fill_color := val & 0xffffffff;
                             im.Indent();
                             im.Text_CFormat("Fill Color: 0x%08x", fill_color);
+                            im.Unindent();
+                        }
+                    case 0x3b;
+                        if im.CollapsingHeader(tprint("Set Env Color##%\0", idx).data, .OpenOnArrow) {
+                            a := val & 0xff;
+                            b := (val >> 8) & 0xff;
+                            g := (val >> 16) & 0xff;
+                            r := (val >> 24) & 0xff;
+                            im.Indent();
+                            im.Text("R: %", r);
+                            im.Text("G: %", g);
+                            im.Text("B: %", b);
+                            im.Text("A: %", a);
                             im.Unindent();
                         }
                     case 0x3c;
@@ -1359,6 +1604,19 @@ display_list_window :: () {
                             im.Text("Cycle 1 Alpha D: %", add_a_1);
                             im.Unindent();
                         }
+                    case 0x3d;
+                        if im.CollapsingHeader(tprint("Set Texture Image##%\0", idx).data, .OpenOnArrow) {
+                            dram_addr := val & 0x3ffffff;
+                            width := (val >> 32) & 0x3ff;
+                            size := (val >> 51) & 0x3;
+                            format := (val >> 53) & 0x7;
+                            im.Indent();
+                            im.Text_CFormat("DRAM Address: 0x%07x", dram_addr);
+                            im.Text("Width: %", width + 1);
+                            im.Text("Pixel Size: %", string.["4b", "8b", "16b", "32b"][size]);
+                            im.Text("Image Format: %", string.["rgba", "yuv", "color index", "ia", "i"][format]);
+                            im.Unindent();
+                        }
                     case 0x3e;
                         if im.CollapsingHeader(tprint("Set Z Image##%\0", idx).data, .OpenOnArrow) {
                             dram_addr := val & 0x3ffffff;
@@ -1384,6 +1642,7 @@ display_list_window :: () {
                 }
                 addr += 8;
             }
+            if snapshot im.LogFinish();
             im.EndTabItem();
         }
         im.EndTabBar();

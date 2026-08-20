@@ -11,6 +11,7 @@ Memory :: struct {
     boot_ram : Mem(0x40);
     imem : Mem(0x1000);
     dmem : Mem(0x1000);
+    tmem: Mem(0x1000);
     ri : Mem(0x20);
     mi : Mem(0x10);
     si : Mem(0x1c);

@@ -12,6 +12,15 @@ Rsp :: struct {
         _8: [6]u8;
         _16: [3]u16;
     };
+    divin: u32;
+    divout: u32;
+
+    greatereq: [8]bool;
+    lesseq: [8]bool;
+    carry: [8]bool;
+    nonzero: [8]bool;
+    compareex: [8]bool;
+
     cp0: [16]u32;
     pc: u32;
 
@@ -34,8 +43,8 @@ rsp_instr_lut := (_:u32).[
     null,
     rsp_andi,
     rsp_ori,
-    null,
-    null,
+    rsp_xori,
+    rsp_lui,
     rsp_cop0,
     null,
     rsp_cop2,
@@ -155,6 +164,9 @@ rsp_execute_next :: (cycle_bypass := false) {
     if rsp.remaining_cycles > 0 || cycle_bypass {
         ins := rsp_next();
         rsp_execute(ins);
+        // if rsp.pc == 0x200 print("%\n", formatInt(rsp.gpr[2], 16, 8));
+        // print("%\n", formatInt(rsp.pc, 16, 8));
+        if rsp.pc % 4 != 0 exit(1);
     }
 }
 
