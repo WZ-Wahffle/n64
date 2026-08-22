@@ -896,7 +896,7 @@ rsp_swc2 :: (ins: u32) {
         case 7;
             addr := rsp_reg_src(base) + offset;
             for 0..7 {
-                mem.dmem._8[addr + it] = cast(u8,rsp.v[vt]._16[it] >> 7);
+                mem.dmem._8[addr + it] = cast(u8,(rsp.v[vt]._16[it] >> 7) & 0xff);
             }
         case;
             assert(false, "TODO %", opcode);

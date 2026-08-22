@@ -190,13 +190,26 @@ cpu_window :: () {
         im.TreePop();
     }
     if im.TreeNode("Float Registers") {
-        if im.Checkbox("wide", *cpu_window_float_wide) {
-            for 0..15 {
-                im.Text_CFormat("f%02d: %016lf f%02d: %016lf", it * 2, cpu.fgr[it * 2].f64, it * 2 + 1, cpu.fgr[it * 2 + 1].f64);
+        im.Checkbox("wide", *cpu_window_float_wide);
+        if (cpu.cp0[Cp0.STATUS] >> 26) & 1 {
+            if cpu_window_float_wide {
+                for 0..15 {
+                    im.Text_CFormat("f%02d: %016lf f%02d: %016lf", it * 2, fpu_read_f64(xx (it*2)), it * 2 + 1, fpu_read_f64(xx (it*2+1)));
+                }
+            } else {
+                for 0..15 {
+                    im.Text_CFormat("f%02d: %016f f%02d: %016f", it * 2, fpu_read_f32(xx (it*2)), it * 2 + 1, fpu_read_f32(xx (it*2+1)));
+                }
             }
         } else {
-            for 0..15 {
-                im.Text_CFormat("f%02d: %016f f%02d: %016f", it * 2, cpu.fgr[it * 2].f32, it * 2 + 1, cpu.fgr[it * 2 + 1].f32);
+            if cpu_window_float_wide {
+                for 0..7 {
+                    im.Text_CFormat("f%02d: %016lf f%02d: %016lf", it * 4, fpu_read_f64(xx (it*4)), it * 4 + 2, fpu_read_f64(xx (it*4+2)));
+                }
+            } else {
+                for 0..7 {
+                    im.Text_CFormat("f%02d: %016f f%02d: %016f", it * 4, fpu_read_f32(xx (it*4)), it * 4 + 2, fpu_read_f32(xx (it*4+2)));
+                }
             }
         }
         im.TreePop();

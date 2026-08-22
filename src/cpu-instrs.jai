@@ -334,7 +334,7 @@ cpu_sd :: (ins: u32) {
 cpu_lwc1 :: (ins: u32) {
     base, ft, imm := decode_i(ins);
     addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
-    cpu.fgr[ft].i32 = cast,no_check(s32,read_4_v(addr));
+    fpu_write_u32(ft, read_4_v(addr));
 }
 
 cpu_ldc1 :: (ins: u32) {
@@ -343,20 +343,20 @@ cpu_ldc1 :: (ins: u32) {
     addr &= 0xfffffff8;
     hi : u64 = read_4_v(addr);
     lo : u64 = read_4_v(addr + 4);
-    cpu.fgr[ft].i64 = cast,no_check(s64,(hi << 32) | lo);
+    fpu_write_u64(ft, (hi << 32) | lo);
 }
 
 cpu_swc1 :: (ins: u32) {
     base, ft, imm := decode_i(ins);
     addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
-    write_4_v(addr, cast,no_check(u32,cpu.fgr[ft].i32));
+    write_4_v(addr, fpu_read_u32(ft));
 }
 
 cpu_sdc1 :: (ins: u32) {
     base, ft, imm := decode_i(ins);
     addr : u32 = xx ((cpu_reg_src(base) + sign_extend_2(imm)) & 0xffffffff);
     addr &= 0xfffffff8;
-    val := cpu.fgr[ft].i64;
+    val := fpu_read_u64(ft);
     write_4_v(addr, xx (val >> 32));
     write_4_v(addr + 4, xx (val & 0xffffffff));
 }
@@ -542,11 +542,11 @@ cpu_cop1 :: (ins: u32) {
     if fmt < 16 {
         if fmt == {
             case 0;
-                cpu_reg_dst(ft, cast,no_check(u32,cpu.fgr[fs].i32));
+                cpu_reg_dst(ft, fpu_read_u32(fs));
             case 2;
                 cpu_reg_dst(ft, cpu.fcr[fs]);
             case 4;
-                cpu.fgr[fs].i64 = cast,no_check(s64,cpu_reg_src(ft) & 0xffffffff);
+                fpu_write_u32(fs, xx cpu_reg_src(ft) & 0xffffffff);
             case 6;
                 cpu.fcr[fs] = xx cpu_reg_src(ft);
             case 8;
@@ -569,23 +569,27 @@ cpu_cop1 :: (ins: u32) {
             unordered : bool;
             if fmt == {
                 case 16;
-                    if isnan(cpu.fgr[fs].f32) || isnan(cpu.fgr[fs].f32) {
+                    fs_v := fpu_read_f32(fs);
+                    ft_v := fpu_read_f32(ft);
+                    if isnan(fs_v) || isnan(ft_v) {
                         less = false;
                         equal = false;
                         unordered = true;
                     } else {
-                        less = cpu.fgr[fs].f32 < cpu.fgr[ft].f32;
-                        equal = cpu.fgr[fs].f32 == cpu.fgr[ft].f32;
+                        less = fs_v < ft_v;
+                        equal = fs_v == ft_v;
                         unordered = false;
                     }
                 case 17;
-                    if isnan(cpu.fgr[fs].f64) || isnan(cpu.fgr[fs].f64) {
+                    fs_v := fpu_read_f64(fs);
+                    ft_v := fpu_read_f64(ft);
+                    if isnan(fs_v) || isnan(ft_v) {
                         less = false;
                         equal = false;
                         unordered = true;
                     } else {
-                        less = cpu.fgr[fs].f64 < cpu.fgr[ft].f64;
-                        equal = cpu.fgr[fs].f64 == cpu.fgr[ft].f64;
+                        less = fs_v < ft_v;
+                        equal = fs_v == ft_v;
                         unordered = false;
                     }
                 case;
@@ -596,63 +600,63 @@ cpu_cop1 :: (ins: u32) {
             case 0;
                 if fmt == {
                     case 16;
-                        cpu.fgr[fd].f32 = cpu.fgr[fs].f32 + cpu.fgr[ft].f32;
+                        fpu_write_f32(fd, fpu_read_f32(fs) + fpu_read_f32(ft));
                     case 17;
-                        cpu.fgr[fd].f64 = cpu.fgr[fs].f64 + cpu.fgr[ft].f64;
+                        fpu_write_f64(fd, fpu_read_f64(fs) + fpu_read_f64(ft));
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
             case 1;
                 if fmt == {
                     case 16;
-                        cpu.fgr[fd].f32 = cpu.fgr[fs].f32 - cpu.fgr[ft].f32;
+                        fpu_write_f32(fd, fpu_read_f32(fs) - fpu_read_f32(ft));
                     case 17;
-                        cpu.fgr[fd].f64 = cpu.fgr[fs].f64 - cpu.fgr[ft].f64;
+                        fpu_write_f64(fd, fpu_read_f64(fs) - fpu_read_f64(ft));
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
             case 2;
                 if fmt == {
                     case 16;
-                        cpu.fgr[fd].f32 = cpu.fgr[fs].f32 * cpu.fgr[ft].f32;
+                        fpu_write_f32(fd, fpu_read_f32(fs) * fpu_read_f32(ft));
                     case 17;
-                        cpu.fgr[fd].f64 = cpu.fgr[fs].f64 * cpu.fgr[ft].f64;
+                        fpu_write_f64(fd, fpu_read_f64(fs) * fpu_read_f64(ft));
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
             case 3;
                 if fmt == {
                     case 16;
-                        cpu.fgr[fd].f32 = cpu.fgr[fs].f32 / cpu.fgr[ft].f32;
+                        fpu_write_f32(fd, fpu_read_f32(fs) / fpu_read_f32(ft));
                     case 17;
-                        cpu.fgr[fd].f64 = cpu.fgr[fs].f64 / cpu.fgr[ft].f64;
+                        fpu_write_f64(fd, fpu_read_f64(fs) / fpu_read_f64(ft));
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
             case 4;
                 if fmt == {
                     case 16;
-                        cpu.fgr[fd].f32 = sqrt(cpu.fgr[fs].f32);
+                        fpu_write_f32(fd, sqrt(fpu_read_f32(fs)));
                     case 17;
-                        cpu.fgr[fd].f64 = sqrt(cpu.fgr[fs].f64);
+                        fpu_write_f64(fd, sqrt(fpu_read_f64(fs)));
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
             case 6;
                 if fmt == {
                     case 16;
-                        cpu.fgr[fd].f32 = cpu.fgr[fs].f32;
+                        fpu_write_f32(fd, fpu_read_f32(fs));
                     case 17;
-                        cpu.fgr[fd].f64 = cpu.fgr[fs].f64;
+                        fpu_write_f64(fd, fpu_read_f64(fs));
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
             case 7;
                 if fmt == {
                     case 16;
-                        cpu.fgr[fd].f32 = -cpu.fgr[fs].f32;
+                        fpu_write_f32(fd, -fpu_read_f32(fs));
                     case 17;
-                        cpu.fgr[fd].f64 = -cpu.fgr[fs].f64;
+                        fpu_write_f64(fd, -fpu_read_f64(fs));
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
@@ -661,46 +665,39 @@ cpu_cop1 :: (ins: u32) {
                 set_rounding_mode(Rounding_Mode.ZERO);
                 if fmt == {
                     case 16;
-                        cpu.fgr[fd].i32 = round_f32_to_i32(cpu.fgr[fs].f32);
-                        cpu.fgr[fd].i64 &= 0xffffffff;
+                        fpu_write_s32(fd, round_f32_to_i32(fpu_read_f32(fs)));
                     case 17;
-                        cpu.fgr[fd].i32 = round_f64_to_i32(cpu.fgr[fs].f64);
-                        cpu.fgr[fd].i64 &= 0xffffffff;
+                        fpu_write_s32(fd, round_f64_to_i32(fpu_read_f64(fs)));
                 }
                 set_rounding_mode(mode);
             case 32;
                 if fmt == {
                     case 17;
-                        cpu.fgr[fd].f32 = xx cpu.fgr[fs].f64;
-                        cpu.fgr[fd].i64 &= 0xffffffff;
+                        fpu_write_f32(fd, xx fpu_read_f64(fs));
                     case 20;
-                        cpu.fgr[fd].f32 = xx cpu.fgr[fs].i32;
-                        cpu.fgr[fd].i64 &= 0xffffffff;
+                        fpu_write_f32(fd, xx fpu_read_s32(fs));
                     case 21;
-                        cpu.fgr[fd].f32 = xx cpu.fgr[fs].i64;
-                        cpu.fgr[fd].i64 &= 0xffffffff;
+                        fpu_write_f32(fd, xx fpu_read_s64(fs));
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
             case 33;
                 if fmt == {
                     case 16;
-                        cpu.fgr[fd].f64 = xx cpu.fgr[fs].f32;
+                        fpu_write_f64(fd, xx fpu_read_f32(fs));
                     case 20;
-                        cpu.fgr[fd].f64 = xx cpu.fgr[fs].i32;
+                        fpu_write_f64(fd, xx fpu_read_s32(fs));
                     case 21;
-                        cpu.fgr[fd].f64 = xx cpu.fgr[fs].i64;
+                        fpu_write_f64(fd, xx fpu_read_s64(fs));
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
             case 36;
                 if fmt == {
                     case 16;
-                        cpu.fgr[fd].i32 = xx cpu.fgr[fs].f32;
-                        cpu.fgr[fd].i64 &= 0xffffffff;
+                        fpu_write_s32(fd, xx fpu_read_f32(fs));
                     case 17;
-                        cpu.fgr[fd].i32 = xx cpu.fgr[fs].f64;
-                        cpu.fgr[fd].i64 &= 0xffffffff;
+                        fpu_write_s32(fd, xx fpu_read_f64(fs));
                     case;
                         assert(false, "Invalid format %", fmt);
                 }
@@ -741,7 +738,109 @@ decode_r :: inline (ins: u32) -> (rs: u32, rt: u32, rd: u32, sa: u32) {
     return (ins >> 21) & 0x1f, (ins >> 16) & 0x1f, (ins >> 11) & 0x1f, (ins >> 6) & 0x1f;
 }
 
+fpu_write_f32 :: inline (v: u32, val: float32) {
+    if !((cpu.cp0[Cp0.STATUS] >> 26) & 1) {
+        assert(v % 2 == 0);
+    }
+    cpu.fgr[v]._32f = val;
+}
+
+fpu_write_f64 :: inline (v: u32, val: float64) {
+    if (cpu.cp0[Cp0.STATUS] >> 26) & 1 {
+        cpu.fgr[v]._64f = val;
+    } else {
+        assert(v % 2 == 0);
+        bitcast_val := bit_cast_f64_to_u64(val);
+        cpu.fgr[v]._32 = xx bitcast_val & 0xffffffff;
+        cpu.fgr[v + 1]._32 = xx bitcast_val >> 32;
+    }
+}
+
+fpu_write_u32 :: inline (v: u32, val: u32) {
+    cpu.fgr[v]._32 = val;
+}
+
+fpu_write_u64 :: inline (v: u32, val: u64) {
+    if (cpu.cp0[Cp0.STATUS] >> 26) & 1 {
+        cpu.fgr[v]._64 = val;
+    } else {
+        assert(v % 2 == 0);
+        cpu.fgr[v]._32 = xx val & 0xffffffff;
+        cpu.fgr[v + 1]._32 = xx val >> 32;
+    }
+}
+
+fpu_write_s32 :: inline (v: u32, val: s32) {
+    cpu.fgr[v]._32s = val;
+}
+
+fpu_write_s64 :: inline (v: u32, val: s64) {
+    if (cpu.cp0[Cp0.STATUS] >> 26) & 1 {
+        cpu.fgr[v]._64s = val;
+    } else {
+        assert(v % 2 == 0);
+        cpu.fgr[v]._32 = xx cast,no_check(u64,val) & 0xffffffff;
+        cpu.fgr[v + 1]._32 = xx cast,no_check(u64,val) >> 32;
+    }
+}
+
+fpu_read_f32 :: inline (v: u32) -> float32 {
+    if !((cpu.cp0[Cp0.STATUS] >> 26) & 1) {
+        assert(v % 2 == 0);
+    }
+    return cpu.fgr[v]._32f;
+}
+
+fpu_read_f64 :: inline (v: u32) -> float64 {
+    if (cpu.cp0[Cp0.STATUS] >> 26) & 1 {
+        return cpu.fgr[v]._64f;
+    } else {
+        assert(v % 2 == 0);
+        ret := cast(u64,cpu.fgr[v]._32);
+        ret |= cast(u64,cpu.fgr[v + 1]._32) << 32;
+        return bit_cast_u64_to_f64(ret);
+    }
+}
+
+fpu_read_u32 :: inline (v: u32) -> u32 {
+    return cpu.fgr[v]._32;
+}
+
+fpu_read_u64 :: inline (v: u32) -> u64 {
+    if (cpu.cp0[Cp0.STATUS] >> 26) & 1 {
+        return cpu.fgr[v]._64;
+    } else {
+        assert(v % 2 == 0);
+        ret := cast(u64,cpu.fgr[v]._32);
+        ret |= cast(u64,cpu.fgr[v + 1]._32) << 32;
+        return ret;
+    }
+}
+
+fpu_read_s32 :: inline (v: u32) -> s32 {
+    return cpu.fgr[v]._32s;
+}
+
+fpu_read_s64 :: inline (v: u32) -> s64 {
+    if (cpu.cp0[Cp0.STATUS] >> 26) & 1 {
+        return cpu.fgr[v]._64s;
+    } else {
+        assert(v % 2 == 0);
+        ret := cast(u64,cpu.fgr[v]._32);
+        ret |= cast(u64,cpu.fgr[v + 1]._32) << 32;
+        return cast,no_check(s64,ret);
+    }
+}
+
 #scope_file
+
+bit_cast_f64_to_u64 :: inline (val: float64) -> u64 {
+    return cast,no_check(*u64, *val).*;
+}
+
+bit_cast_u64_to_f64 :: inline (val: u64) -> float64 {
+    return cast,no_check(*float64, *val).*;
+}
 
 cpu_branch :: inline (addr: u32, cond: bool) {
     cpu_execute_next(true);

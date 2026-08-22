@@ -2,11 +2,13 @@ Cpu :: struct {
     gpr: [32]u64;
     cp0: [32]u32;
     tlb: [32]struct {entry_lo0: u32; entry_lo1: u32; entry_hi: u32; page_mask: u32;};
-    fgr: [64]union {
-        i32: s32;
-        i64: s64;
-        f32: float32;
-        f64: float64;
+    fgr: [32]union {
+        _64: u64;
+        _64s: s64;
+        _32: u32;
+        _32s: s32;
+        _32f: float32;
+        _64f: float64;
     };
     fcr: [32]u32;
     coc: bool;
