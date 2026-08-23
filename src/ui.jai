@@ -1124,7 +1124,7 @@ visualize_display_list :: (addr: u32, end: u32 = 0, segs: *[16]u32) {
                     case 189;
                         // G_POPMTX
                         flags := val & 0xffffffff;
-                        im.Text("gSPPopMatrix(%)", string.["G_MTX_PROJECTION", "G_MTX_MODELVIEW"][flags]);
+                        im.Text("gSPPopMatrix(%)", string.["G_MTX_MODELVIEW", "G_MTX_PROJECTION"][flags]);
                     case 191;
                         // G_TRI1
                         flag := (val >> 24) & 0xff;

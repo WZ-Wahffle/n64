@@ -86,6 +86,15 @@ rsp_sub :: (ins: u32) {
     rsp_reg_dst(rd, (rsp_reg_src(rs) - rsp_reg_src(rt)));
 }
 
+rsp_slt :: (ins: u32) {
+    rs, rt, rd := decode_r(ins);
+    if cast,no_check(s32,rsp_reg_src(rs)) < cast,no_check(s32,rsp_reg_src(rt)) {
+        rsp_reg_dst(rd, 1);
+    } else {
+        rsp_reg_dst(rd, 0);
+    }
+}
+
 rsp_lb :: (ins: u32) {
     base, rt, imm := decode_i(ins);
     addr := (rsp_reg_src(base) + sign_extend_2(imm)) & 0xfff;
@@ -777,6 +786,25 @@ rsp_cop2 :: (ins: u32) {
                     rsp.v[vd]._16[i] = result;
                     rsp.acc[i]._16[0] = result;
                 }
+            case 42;
+                // vor
+                for i: 0..7 {
+                    j := 0;
+                    if e == 0 {
+                        j = i;
+                    } else if e & 0b1110 == 0b10 {
+                        j = (e & 0b1) + (i & 0b110);
+                    } else if e & 0b1100 == 0b100 {
+                        j = (e & 0b11) + (i & 0b100);
+                    } else if e & 0b1000 == 0b1000 {
+                        j = e & 0b111;
+                    } else {
+                        assert(false, "unreachable");
+                    }
+                    result := rsp.v[vs]._16[i] | rsp.v[vt]._16[j];
+                    rsp.acc[i]._16[0] = result;
+                    rsp.v[vd]._16[i] = result;
+                }
             case 44;
                 // vxor
                 for i: 0..7 {
@@ -837,6 +865,12 @@ rsp_cop2 :: (ins: u32) {
                     rsp.acc[i]._16[0] = rsp.v[vt]._16[e];
                 }
                 rsp.v[vd]._16[vs] = xx (rsp.divout >> 16);
+            case 51;
+                // vmov
+                e &= 0x7;
+                vs &= 0x7;
+                rsp.v[vd]._16[vs] = rsp.v[vt]._16[e];
+                rsp.acc[vs]._16[0] = rsp.v[vt]._16[e];
             case;
                 assert(false, "TODO %", imm & 0x3f);
         }

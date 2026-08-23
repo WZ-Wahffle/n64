@@ -135,6 +135,10 @@ rsp_special_lut := (_:u32).[
     rsp_and,
     rsp_or,
     rsp_xor,
+    null,
+    null,
+    null,
+    rsp_slt
 ];
 
 rsp_regimm_lut := (_:u32).[
