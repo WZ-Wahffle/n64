@@ -251,6 +251,8 @@ rsp_cop2 :: (ins: u32) {
         e := op & 0xf;
         vd := (imm >> 6) & 0x1f;
         vs := (imm >> 11) & 0x1f;
+        vt_r := rsp.v[vt];
+        vs_r := rsp.v[vs];
         if (imm & 0x3f) == {
             case 0;
                 // vmulf
@@ -267,7 +269,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := mul(rsp.v[vs]._16[i], rsp.v[vt]._16[j], .SIGNED, .SIGNED) << 1;
+                    result := mul(vs_r._16[i], vt_r._16[j], .SIGNED, .SIGNED) << 1;
                     rsp.acc[i]._16[1] = xx result & 0xffff;
                     rsp.acc[i]._16[2] = xx (result >> 16);
                     rsp.acc[i]._16[0] += 0x8000; // "rounding", effectively adds 0.5
@@ -288,7 +290,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := mul(rsp.v[vs]._16[i], rsp.v[vt]._16[j], .UNSIGNED, .UNSIGNED);
+                    result := mul(vs_r._16[i], vt_r._16[j], .UNSIGNED, .UNSIGNED);
                     rsp.acc[i]._32[0] = result >> 16;
                     rsp.v[vd]._16[i] = rsp.acc[i]._16[0];
                 }
@@ -307,7 +309,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := mul(rsp.v[vs]._16[i], rsp.v[vt]._16[j], .SIGNED, .UNSIGNED);
+                    result := mul(vs_r._16[i], vt_r._16[j], .SIGNED, .UNSIGNED);
                     rsp.acc[i]._32[0] = result;
                     rsp.v[vd]._16[i] = rsp.acc[i]._16[1];
                 }
@@ -326,7 +328,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := mul(rsp.v[vs]._16[i], rsp.v[vt]._16[j], .UNSIGNED, .SIGNED);
+                    result := mul(vs_r._16[i], vt_r._16[j], .UNSIGNED, .SIGNED);
                     rsp.acc[i]._32[0] = result;
                     rsp.v[vd]._16[i] = rsp.acc[i]._16[0];
                 }
@@ -345,7 +347,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := mul(rsp.v[vs]._16[i], rsp.v[vt]._16[j], .SIGNED, .SIGNED);
+                    result := mul(vs_r._16[i], vt_r._16[j], .SIGNED, .SIGNED);
                     rsp.acc[i]._32[0] = result << 16;
                     rsp.v[vd]._16[i] = rsp.acc[i]._16[1];
                 }
@@ -364,7 +366,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := mul(rsp.v[vs]._16[i], rsp.v[vt]._16[j], .SIGNED, .SIGNED) << 1;
+                    result := mul(vs_r._16[i], vt_r._16[j], .SIGNED, .SIGNED) << 1;
                     rsp.acc[i]._16[1] = xx result & 0xffff;
                     rsp.acc[i]._16[2] = xx (result >> 16);
                     rsp.v[vd]._16[i] = rsp.acc[i]._16[1];
@@ -384,7 +386,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := mul(rsp.v[vs]._16[i], rsp.v[vt]._16[j], .UNSIGNED, .UNSIGNED);
+                    result := mul(vs_r._16[i], vt_r._16[j], .UNSIGNED, .UNSIGNED);
                     rsp.acc[i]._32[0] += result >> 16;
                     rsp.v[vd]._16[i] = rsp.acc[i]._16[0];
                 }
@@ -403,7 +405,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := mul(rsp.v[vs]._16[i], rsp.v[vt]._16[j], .SIGNED, .UNSIGNED);
+                    result := mul(vs_r._16[i], vt_r._16[j], .SIGNED, .UNSIGNED);
                     rsp.acc[i]._32[0] += result;
                     rsp.v[vd]._16[i] = rsp.acc[i]._16[1];
                 }
@@ -422,7 +424,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := mul(rsp.v[vs]._16[i], rsp.v[vt]._16[j], .UNSIGNED, .SIGNED);
+                    result := mul(vs_r._16[i], vt_r._16[j], .UNSIGNED, .SIGNED);
                     rsp.acc[i]._32[0] += result;
                     rsp.v[vd]._16[i] = rsp.acc[i]._16[0];
                 }
@@ -441,7 +443,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := mul(rsp.v[vs]._16[i], rsp.v[vt]._16[j], .SIGNED, .SIGNED);
+                    result := mul(vs_r._16[i], vt_r._16[j], .SIGNED, .SIGNED);
                     rsp.acc[i]._32[0] += result << 16;
                     rsp.v[vd]._16[i] = rsp.acc[i]._16[1];
                 }
@@ -460,13 +462,10 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    first := rsp.v[vs]._16s[i];
-                    second := rsp.v[vt]._16s[j];
-                    result := cast(s32,first) + cast(s32,second);
-                    if rsp.carry[i] result += 1;
+                    result := sign_extend_2(vs_r._16[i]) + sign_extend_2(vt_r._16[i]) + xx rsp.carry[i];
+                    rsp.v[vd]._16[i] = xx result & 0xffff;
+                    rsp.acc[i]._16[0] = xx result & 0xffff;
                     rsp.carry[i] = false;
-                    rsp.acc[i]._16[0] = cast,no_check(u16,result);
-                    rsp.v[vd]._16[i] = clamp_signed(result);
                 }
             case 17;
                 // vsub
@@ -483,13 +482,36 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    first := rsp.v[vs]._16s[i];
-                    second := rsp.v[vt]._16s[j];
-                    result := cast(s32,first) - cast(s32,second);
-                    if rsp.carry[i] result -= 1;
+                    result := sign_extend_2(vs_r._16[i]) - sign_extend_2(vt_r._16[i]) - xx rsp.carry[i];
+                    rsp.v[vd]._16[i] = xx result & 0xffff;
+                    rsp.acc[i]._16[0] = xx result & 0xffff;
                     rsp.carry[i] = false;
-                    rsp.acc[i]._16[0] = cast,no_check(u16,result);
-                    rsp.v[vd]._16[i] = clamp_signed(result);
+                }
+            case 19;
+                // vabs
+                for i: 0..7 {
+                    j := 0;
+                    if e == 0 {
+                        j = i;
+                    } else if e & 0b1110 == 0b10 {
+                        j = (e & 0b1) + (i & 0b110);
+                    } else if e & 0b1100 == 0b100 {
+                        j = (e & 0b11) + (i & 0b100);
+                    } else if e & 0b1000 == 0b1000 {
+                        j = e & 0b111;
+                    } else {
+                        assert(false, "unreachable");
+                    }
+                    result : s16;
+                    if vs_r._16s[i] < 0 {
+                        result = -vt_r._16s[j];
+                    } else if vs_r._16s[i] == 0 {
+                        result = 0;
+                    } else {
+                        result = vt_r._16s[j];
+                    }
+                    rsp.acc[i]._16s[0] = result;
+                    rsp.v[vd]._16s[i] = result;
                 }
             case 20;
                 // vaddc
@@ -506,8 +528,8 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    first := rsp.v[vs]._16[i];
-                    second := rsp.v[vt]._16[j];
+                    first := vs_r._16[i];
+                    second := vt_r._16[j];
                     result := first + second;
                     rsp.carry[i] = false;
                     rsp.acc[i]._16[0] = result;
@@ -530,8 +552,8 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    first := rsp.v[vs]._16s[i];
-                    second := rsp.v[vt]._16s[j];
+                    first := vs_r._16s[i];
+                    second := vt_r._16s[j];
                     result := first - second;
                     rsp.acc[i]._16[0] = cast,no_check(u16,result);
                     rsp.v[vd]._16s[i] = result;
@@ -544,7 +566,7 @@ rsp_cop2 :: (ins: u32) {
                 assert(e < 3, "% < 3", e);
                 for i: 0..7 {
                     rsp.v[vd]._16[i] = rsp.acc[i]._16[2 - e];
-                    rsp.acc[i]._16[2 - e] = rsp.v[vs]._16[i];
+                    rsp.acc[i]._16[2 - e] = vs_r._16[i];
                 }
             case 32;
                 // vlt
@@ -562,15 +584,15 @@ rsp_cop2 :: (ins: u32) {
                         assert(false, "unreachable");
                     }
 
-                    if rsp.v[vs]._16s[i] < rsp.v[vt]._16s[j] {
+                    if vs_r._16s[i] < vt_r._16s[j] {
                         rsp.greatereq[i] = true;
-                    } else if rsp.v[vs]._16s[i] == rsp.v[vt]._16s[j] && rsp.carry[i] && !rsp.compareex[i] {
+                    } else if vs_r._16s[i] == vt_r._16s[j] && rsp.carry[i] && !rsp.compareex[i] {
                         rsp.greatereq[i] = true;
                     } else {
                         rsp.greatereq[i] = false;
                     }
 
-                    result := ifx rsp.greatereq[i] then rsp.v[vs]._16[i] else rsp.v[vt]._16[j];
+                    result := ifx rsp.greatereq[i] then vs_r._16[i] else vt_r._16[j];
                     rsp.acc[i]._16[0] = result;
                     rsp.v[vd]._16[i] = result;
                     rsp.lesseq[i] = false;
@@ -594,13 +616,13 @@ rsp_cop2 :: (ins: u32) {
                         assert(false, "unreachable");
                     }
 
-                    if rsp.v[vs]._16s[i] == rsp.v[vt]._16s[j] && rsp.compareex[i] {
+                    if vs_r._16s[i] == vt_r._16s[j] && rsp.compareex[i] {
                         rsp.greatereq[i] = true;
                     } else {
                         rsp.greatereq[i] = false;
                     }
 
-                    result := ifx rsp.greatereq[i] then rsp.v[vs]._16[i] else rsp.v[vt]._16[j];
+                    result := ifx rsp.greatereq[i] then vs_r._16[i] else vt_r._16[j];
                     rsp.acc[i]._16[0] = result;
                     rsp.v[vd]._16[i] = result;
                     // top of vcc for some reason not cleared here?
@@ -625,13 +647,13 @@ rsp_cop2 :: (ins: u32) {
                         assert(false, "unreachable");
                     }
 
-                    if rsp.v[vs]._16s[i] != rsp.v[vt]._16s[j] || !rsp.compareex[i] {
+                    if vs_r._16s[i] != vt_r._16s[j] || !rsp.compareex[i] {
                         rsp.greatereq[i] = true;
                     } else {
                         rsp.greatereq[i] = false;
                     }
 
-                    result := ifx rsp.greatereq[i] then rsp.v[vs]._16[i] else rsp.v[vt]._16[j];
+                    result := ifx rsp.greatereq[i] then vs_r._16[i] else vt_r._16[j];
                     rsp.acc[i]._16[0] = result;
                     rsp.v[vd]._16[i] = result;
                     rsp.lesseq[i] = false;
@@ -656,15 +678,15 @@ rsp_cop2 :: (ins: u32) {
                         assert(false, "unreachable");
                     }
 
-                    if rsp.v[vs]._16s[i] > rsp.v[vt]._16s[j] {
+                    if vs_r._16s[i] > vt_r._16s[j] {
                         rsp.greatereq[i] = true;
-                    } else if rsp.v[vs]._16s[i] == rsp.v[vt]._16s[j] && (!rsp.carry[i] || rsp.compareex[i]) {
+                    } else if vs_r._16s[i] == vt_r._16s[j] && (!rsp.carry[i] || rsp.compareex[i]) {
                         rsp.greatereq[i] = true;
                     } else {
                         rsp.greatereq[i] = false;
                     }
 
-                    result := ifx rsp.greatereq[i] then rsp.v[vs]._16[i] else rsp.v[vt]._16[j];
+                    result := ifx rsp.greatereq[i] then vs_r._16[i] else vt_r._16[j];
                     rsp.acc[i]._16[0] = result;
                     rsp.v[vd]._16[i] = result;
                     rsp.lesseq[i] = false;
@@ -694,19 +716,19 @@ rsp_cop2 :: (ins: u32) {
                     sign := rsp.carry[i];
                     di: s16;
                     if sign {
-                        di = rsp.v[vs]._16s[i] + rsp.v[vt]._16s[j];
+                        di = vs_r._16s[i] + vt_r._16s[j];
                         carry := di < 0;
                         if eq {
                             le = (!vce && (di >= 0) && !carry) || (vce && (di >= 0 || !carry));
                         }
-                        di = ifx le then -rsp.v[vt]._16s[j] else rsp.v[vs]._16s[i];
+                        di = ifx le then -vt_r._16s[j] else vs_r._16s[i];
                         rsp.acc[i]._16[0] = cast,no_check(u16, di);
                     } else {
-                        di = rsp.v[vs]._16s[i] - rsp.v[vt]._16s[j];
+                        di = vs_r._16s[i] - vt_r._16s[j];
                         if eq {
                             ge = di >= 0;
                         }
-                        di = ifx ge then rsp.v[vt]._16s[j] else rsp.v[vs]._16s[i];
+                        di = ifx ge then vt_r._16s[j] else vs_r._16s[i];
                         rsp.acc[i]._16[0] = cast,no_check(u16, di);
                     }
                     rsp.v[vd]._16s[i] = di;
@@ -736,20 +758,20 @@ rsp_cop2 :: (ins: u32) {
                     vce: bool;
                     eq: bool;
                     di: s16;
-                    sign := (rsp.v[vs]._16s[i] ^ rsp.v[vt]._16s[j]) < 0;
+                    sign := (vs_r._16s[i] ^ vt_r._16s[j]) < 0;
                     if sign {
-                        ge = rsp.v[vt]._16s[j] < 0;
-                        le = (rsp.v[vs]._16s[i] + rsp.v[vt]._16s[j]) <= 0;
-                        vce = (rsp.v[vs]._16s[i] + rsp.v[vt]._16s[j]) == -1;
-                        eq = (rsp.v[vs]._16s[i] + rsp.v[vt]._16s[j]) == 0;
-                        di = ifx le then -rsp.v[vt]._16s[j] else rsp.v[vs]._16s[i];
+                        ge = vt_r._16s[j] < 0;
+                        le = (vs_r._16s[i] + vt_r._16s[j]) <= 0;
+                        vce = (vs_r._16s[i] + vt_r._16s[j]) == -1;
+                        eq = (vs_r._16s[i] + vt_r._16s[j]) == 0;
+                        di = ifx le then -vt_r._16s[j] else vs_r._16s[i];
                         rsp.acc[i]._16[0] = cast,no_check(u16, di);
                     } else {
-                        le = rsp.v[vt]._16s[j] < 0;
-                        ge = (rsp.v[vs]._16s[i] - rsp.v[vt]._16s[j]) >= 0;
+                        le = vt_r._16s[j] < 0;
+                        ge = (vs_r._16s[i] - vt_r._16s[j]) >= 0;
                         vce = false;
-                        eq = (rsp.v[vs]._16s[i] + rsp.v[vt]._16s[j]) == 0;
-                        di = ifx ge then rsp.v[vt]._16s[j] else rsp.v[vs]._16s[i];
+                        eq = (vs_r._16s[i] + vt_r._16s[j]) == 0;
+                        di = ifx ge then vt_r._16s[j] else vs_r._16s[i];
                         rsp.acc[i]._16[0] = cast,no_check(u16, di);
                     }
                     rsp.v[vd]._16s[i] = di;
@@ -759,6 +781,43 @@ rsp_cop2 :: (ins: u32) {
                     rsp.carry[i] = sign;
                     rsp.nonzero[i] = neq;
                     rsp.compareex[i] = vce;
+                }
+            case 38;
+                // vcr
+                for i: 0..7 {
+                    j := 0;
+                    if e == 0 {
+                        j = i;
+                    } else if e & 0b1110 == 0b10 {
+                        j = (e & 0b1) + (i & 0b110);
+                    } else if e & 0b1100 == 0b100 {
+                        j = (e & 0b11) + (i & 0b100);
+                    } else if e & 0b1000 == 0b1000 {
+                        j = e & 0b111;
+                    } else {
+                        assert(false, "unreachable");
+                    }
+                    ge: bool;
+                    le: bool;
+                    di: s16;
+                    sign := (vs_r._16s[i] ^ vt_r._16s[j]) < 0;
+                    if sign {
+                        ge = vt_r._16s[j] < 0;
+                        le = (vs_r._16s[i] + vt_r._16s[j]) <= 0;
+                        di = ifx le then ~vt_r._16s[j] else vs_r._16s[i];
+                        rsp.acc[i]._16[0] = cast,no_check(u16, di);
+                    } else {
+                        le = vt_r._16s[j] < 0;
+                        ge = (vs_r._16s[i] - vt_r._16s[j]) >= 0;
+                        di = ifx ge then vt_r._16s[j] else vs_r._16s[i];
+                        rsp.acc[i]._16[0] = cast,no_check(u16, di);
+                    }
+                    rsp.v[vd]._16s[i] = di;
+                    rsp.greatereq[i] = ge;
+                    rsp.lesseq[i] = le;
+                    rsp.carry[i] = false;
+                    rsp.nonzero[i] = false;
+                    rsp.compareex[i] = false;
                 }
             case 39;
                 // vmrg
@@ -776,9 +835,28 @@ rsp_cop2 :: (ins: u32) {
                         assert(false, "unreachable");
                     }
 
-                    result := ifx rsp.greatereq[i] then rsp.v[vs]._16[i] else rsp.v[vt]._16[j];
+                    result := ifx rsp.greatereq[i] then vs_r._16[i] else vt_r._16[j];
                     rsp.v[vd]._16[i] = result;
                     rsp.acc[i]._16[0] = result;
+                }
+            case 40;
+                // vand
+                for i: 0..7 {
+                    j := 0;
+                    if e == 0 {
+                        j = i;
+                    } else if e & 0b1110 == 0b10 {
+                        j = (e & 0b1) + (i & 0b110);
+                    } else if e & 0b1100 == 0b100 {
+                        j = (e & 0b11) + (i & 0b100);
+                    } else if e & 0b1000 == 0b1000 {
+                        j = e & 0b111;
+                    } else {
+                        assert(false, "unreachable");
+                    }
+                    result := vs_r._16[i] & vt_r._16[j];
+                    rsp.acc[i]._16[0] = result;
+                    rsp.v[vd]._16[i] = result;
                 }
             case 42;
                 // vor
@@ -795,7 +873,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := rsp.v[vs]._16[i] | rsp.v[vt]._16[j];
+                    result := vs_r._16[i] | vt_r._16[j];
                     rsp.acc[i]._16[0] = result;
                     rsp.v[vd]._16[i] = result;
                 }
@@ -814,7 +892,7 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := rsp.v[vs]._16[i] ^ rsp.v[vt]._16[j];
+                    result := vs_r._16[i] ^ vt_r._16[j];
                     rsp.acc[i]._16[0] = result;
                     rsp.v[vd]._16[i] = result;
                 }
@@ -833,38 +911,52 @@ rsp_cop2 :: (ins: u32) {
                     } else {
                         assert(false, "unreachable");
                     }
-                    result := ~(rsp.v[vs]._16[i] ^ rsp.v[vt]._16[j]);
+                    result := ~(vs_r._16[i] ^ vt_r._16[j]);
                     rsp.acc[i]._16[0] = result;
                     rsp.v[vd]._16[i] = result;
                 }
+            case 48;
+                // vrcp
+                e &= 0x7;
+                vs &= 0x7;
+                rsp.divin = cast(u32,vt_r._16[e]) << 16;
+                temp := cast(float, rsp.divin) / 65536;
+                temp = 1 / temp;
+                result := cast(u32, temp * 32768);
+                for i: 0..7 {
+                    rsp.acc[i]._16[0] = vt_r._16[e];
+                }
+                rsp.divout = result;
+                rsp.v[vd]._16[vs] = xx (rsp.divout & 0xffff);
             case 49;
                 // vrcpl
                 e &= 0x7;
                 vs &= 0x7;
                 rsp.divin &= 0xffff0000;
-                rsp.divin |= rsp.v[vt]._16[e];
+                rsp.divin |= vt_r._16[e];
                 temp := cast(float, rsp.divin) / 65536;
                 temp = 1 / temp;
                 result := cast(u32, temp * 32768);
                 for i: 0..7 {
-                    rsp.acc[i]._16[0] = rsp.v[vt]._16[e];
+                    rsp.acc[i]._16[0] = vt_r._16[e];
                 }
+                rsp.divout = result;
                 rsp.v[vd]._16[vs] = xx (rsp.divout & 0xffff);
             case 50;
                 // vrcph
                 e &= 0x7;
                 vs &= 0x7;
-                rsp.divin = cast(u32,rsp.v[vt]._16[e]) << 16;
+                rsp.divin = cast(u32,vt_r._16[e]) << 16;
                 for i: 0..7 {
-                    rsp.acc[i]._16[0] = rsp.v[vt]._16[e];
+                    rsp.acc[i]._16[0] = vt_r._16[e];
                 }
                 rsp.v[vd]._16[vs] = xx (rsp.divout >> 16);
             case 51;
                 // vmov
                 e &= 0x7;
                 vs &= 0x7;
-                rsp.v[vd]._16[vs] = rsp.v[vt]._16[e];
-                rsp.acc[vs]._16[0] = rsp.v[vt]._16[e];
+                rsp.v[vd]._16[vs] = vt_r._16[e];
+                rsp.acc[vs]._16[0] = vt_r._16[e];
             case;
                 assert(false, "TODO %", imm & 0x3f);
         }
@@ -876,7 +968,7 @@ rsp_lwc2 :: (ins: u32) {
     opcode := (rest >> 11) & 0x1f;
     element := (rest >> 7) & 0xf;
     offset := rest & 0x7f;
-    offset = sign_extend_1(offset << 1) >> 1;
+    if offset & 0x40 != 0 offset |= 0xffffff80;
     if opcode == {
         case 1;
             rsp.v[vt]._16[element >> 1] = xx rsp_read_16(rsp_reg_src(base) + (offset << 1));
@@ -912,7 +1004,7 @@ rsp_swc2 :: (ins: u32) {
     opcode := (rest >> 11) & 0x1f;
     element := (rest >> 7) & 0xf;
     offset := rest & 0x7f;
-    offset = sign_extend_1(offset << 1) >> 1;
+    if offset & 0x40 != 0 offset |= 0xffffff80;
     if opcode == {
         case 0;
             mem.dmem._8[rsp_reg_src(base) + offset] = rsp.v[vt]._8[element ^ 1];
@@ -937,7 +1029,6 @@ rsp_swc2 :: (ins: u32) {
             mem.dmem._16[(rsp_reg_src(base) >> 1) + (offset << 3) + 5] = hswap(rsp.v[vt]._16[(element >> 1) + 5]);
             mem.dmem._16[(rsp_reg_src(base) >> 1) + (offset << 3) + 6] = hswap(rsp.v[vt]._16[(element >> 1) + 6]);
             mem.dmem._16[(rsp_reg_src(base) >> 1) + (offset << 3) + 7] = hswap(rsp.v[vt]._16[(element >> 1) + 7]);
-
         case 7;
             addr := rsp_reg_src(base) + offset;
             for 0..7 {
@@ -1005,10 +1096,4 @@ mul :: (v1: u32, v2: u32, s1: Signedness, s2: Signedness) -> u32 {
     if s1 == .SIGNED v1 = sign_extend_2(v1);
     if s2 == .SIGNED v2 = sign_extend_2(v2);
     return v1 * v2;
-}
-
-clamp_signed :: inline (val: s32) -> u16 {
-    // if val > 32767 return 0x7fff;
-    // if val < -32768 return 0x8000;
-    return xx val;
 }
