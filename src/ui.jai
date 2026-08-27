@@ -31,7 +31,7 @@ ui :: () {
     rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "n64");
     rl.SetTargetFPS(FPS);
     im.CreateContext();
-    im.GetIO().Fonts.AddFontFromMemoryTTF(im.GetIO().Fonts, font.data, xx font.count, 24);
+    im.GetIO().Fonts.AddFontFromMemoryTTF(im.GetIO().Fonts, font.data, xx font.count, 20);
     rg.backend_setup();
     setup_catppuccin_mocha_theme();
 
@@ -364,6 +364,43 @@ rsp_window :: () {
                     im.Text("%", rsp.v[reg]._32[0]);
                     im.TableNextColumn();
                     im.Text("%", rsp.v[reg]._32[1]);
+            }
+        }
+        im.EndTable();
+        im.BeginTable("##rspacc", 6 / word_size + 1, .SizingFixedFit);
+        for reg: 0..7 {
+            im.TableNextRow();
+            im.TableNextColumn();
+            im.Text_CFormat("acc%02d:", reg);
+            if sizes[rsp_vector_register_size_selected] == {
+                case "u8";
+                    for 0..4 {
+                        im.TableNextColumn();
+                        im.Text("%", rsp.acc[reg]._8[it]);
+                    }
+                    im.TableNextColumn();
+                    im.Text("%", rsp.acc[reg]._8[5]);
+                case "s8";
+                    for 0..4 {
+                        im.TableNextColumn();
+                        im.Text("%", rsp.acc[reg]._8s[it]);
+                    }
+                    im.TableNextColumn();
+                    im.Text("%", rsp.acc[reg]._8s[5]);
+                case "u16";
+                    for 0..1 {
+                        im.TableNextColumn();
+                        im.Text("%", rsp.acc[reg]._16[it]);
+                    }
+                    im.TableNextColumn();
+                    im.Text("%", rsp.acc[reg]._16[2]);
+                case "s16";
+                    for 0..1 {
+                        im.TableNextColumn();
+                        im.Text("%", rsp.acc[reg]._16s[it]);
+                    }
+                    im.TableNextColumn();
+                    im.Text("%", rsp.acc[reg]._16s[2]);
             }
         }
         im.EndTable();

@@ -10,7 +10,10 @@ Rsp :: struct {
     };
     acc: [8] union {
         _8: [6]u8;
+        _8s: [6]s8;
         _16: [3]u16;
+        _16s: [3]s16;
+        _32: [1]u32; // not nice, since the accumulator is not evenly divisible by 32 bits
     };
     divin: u32;
     divout: u32;
